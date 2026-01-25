@@ -158,10 +158,12 @@ def pad_vector(vector, new_dim):
     """Can be (batch_size x sequence_length x features_dimension)
     or (batch_size x features_dimension)
     """
-    if vector.shape[-1] == new_dim:
+    current_dim = vector.shape[-1]
+    if current_dim == new_dim:
         return vector
+    if current_dim > new_dim:
+        return vector[..., :new_dim]
     shape = list(vector.shape)
-    current_dim = shape[-1]
     shape[-1] = new_dim
     new_vector = torch.zeros(*shape, dtype=vector.dtype, device=vector.device)
     new_vector[..., :current_dim] = vector
