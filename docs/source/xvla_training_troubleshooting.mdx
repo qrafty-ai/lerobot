@@ -1,0 +1,111 @@
+# X-VLA training troubleshooting
+
+This note summarizes common X-VLA training failures observed in this repo and how to fix them.
+It focuses on configuration mapping, checkpoint compatibility, and image sizing.
+
+## Quick diagnosis
+
+- **Config shows unexpected input features**: You loaded a full pretrained config via `--policy.path`, which pins `input_features` to the base model.
+- **`vision_config is required`**: `--policy.type=xvla` without a Florence config. Use `--policy.pretrained_path` or provide `florence_config`.
+- **`size mismatch for action_encoder`**: `max_state_dim` does not match the checkpoint.
+- **`stack expects each tensor to be equal size`**: Image views have different resolutions before stacking.
+
+## How feature mapping works (and why it can diverge)
+
+- `make_policy` infers `input_features` from dataset metadata **only if** `policy.input_features` is empty.
+- `--policy.path=...` loads a full pretrained config (including `input_features`), so dataset inference is skipped.
+- `rename_map` is applied at runtime in the processor pipeline; it does not rewrite the config.
+- When `rename_map` is provided, visual feature consistency checks are skipped.
+
+**Implication:** with `--policy.path`, the saved config reflects the base model’s features, not your dataset’s keys.
+
+## Recommended training configuration
+
+Use `--policy.type=xvla` with `--policy.pretrained_path` to get weights **and** allow dataset-driven features.
+
+```bash
+lerobot-train \
+  --dataset.repo_id=qrafty-ai/tea_use_steel_spoon_lerobot \
+  --steps=50000 \
+  --policy.type=xvla \
+  --policy.pretrained_path=lerobot/xvla-base \
+  --policy.dtype=bfloat16 \
+  --policy.action_mode=auto \
+  --policy.max_state_dim=20 \
+  --policy.num_image_views=3 \
+  --policy.empty_cameras=0 \
+  --policy.resize_imgs_with_padding="[224,224]" \
+  --rename_map='{"observation.images.left_cam":"observation.images.image","observation.images.right_cam":"observation.images.image2","observation.images.head_camera":"observation.images.empty_camera_0"}' \
+  --output_dir=outputs/train/xvla_tea_use_steel_spoon \
+  --job_name=xvla_tea_use_steel_spoon \
+  --policy.device=cuda \
+  --wandb.enable=true
+```
+
+If you must use `--policy.path` (to load a full config), clear features so the dataset drives them:
+
+```bash
+--policy.path=lerobot/xvla-base \
+--policy.pretrained_path=lerobot/xvla-base \
+--policy.input_features=null \
+--policy.output_features=null
+```
+
+## Florence config loading
+
+X-VLA requires `florence_config` (`vision_config` + `text_config`). If you use `--policy.type=xvla`
+and provide only `--policy.pretrained_path`, the Florence config is now loaded automatically from
+the pretrained `config.json` when missing. This avoids the `vision_config is required` error.
+
+## Checkpoint compatibility (`max_state_dim`)
+
+The XVLA action encoder depends on:
+
+```
+input_dim = dim_action + dim_time + max_state_dim
+```
+
+`lerobot/xvla-base` was trained with `max_state_dim=20`. If you set `max_state_dim=66`, you will
+hit a strict state dict mismatch. Options:
+
+- **Keep `max_state_dim=20`** and pad/truncate your state in the dataset.
+- **Use `max_state_dim=66`** and load weights non-strict (requires code change) or train from scratch.
+
+## Image resizing (avoids stack mismatch)
+
+The error:
+
+```
+stack expects each tensor to be equal size
+```
+
+means your camera views have different resolutions. XVLA stacks views in `_prepare_images` and
+expects a consistent size. Use one of these:
+
+**Preferred (model-aware, aspect-ratio safe):**
+
+```bash
+--policy.resize_imgs_with_padding="[224,224]"
+```
+
+This resizes and pads in the policy before stacking.
+
+**Alternative (dataset transforms):**
+
+```bash
+--dataset.image_transforms.enable=true \
+--dataset.image_transforms.tfs.resize.type=Resize \
+--dataset.image_transforms.tfs.resize.kwargs.size="[224,224]"
+```
+
+If you use dataset transforms, make resize always-on and avoid random subsets that could leave
+some images un-resized.
+
+## Rename map and normalization
+
+`rename_map` changes observation keys at runtime. If you use normalization stats keyed by the
+original names, rename them as well or regenerate stats from the renamed dataset.
+
+---
+
+If you want, we can add a non-strict checkpoint load + reinit path for `max_state_dim=66`.

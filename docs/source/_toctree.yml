@@ -45,6 +45,8 @@
     title: NVIDIA GR00T N1.5
   - local: xvla
     title: X-VLA
+  - local: xvla_training_troubleshooting
+    title: X-VLA Training Troubleshooting
   - local: walloss
     title: WALL-OSS
   title: "Policies"
