@@ -19,7 +19,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from huggingface_hub import hf_hub_download
+from huggingface_hub.constants import CONFIG_NAME
+from huggingface_hub.errors import HfHubHTTPError
 
 from lerobot.configs.policies import PreTrainedConfig
 from lerobot.configs.types import FeatureType, NormalizationMode, PolicyFeature
@@ -134,6 +140,10 @@ class XVLAConfig(PreTrainedConfig):
         """
         if self._florence_config_obj is None:
             config_dict = dict(self.florence_config)
+            if self.pretrained_path is not None and (
+                "vision_config" not in config_dict or "text_config" not in config_dict
+            ):
+                config_dict = self._load_florence_config_from_pretrained(config_dict)
             if "vision_config" not in config_dict or config_dict["vision_config"] is None:
                 raise ValueError("vision_config is required")
 
@@ -141,6 +151,42 @@ class XVLAConfig(PreTrainedConfig):
                 raise ValueError("text_config is required")
             self._florence_config_obj = Florence2Config(**config_dict)
         return self._florence_config_obj
+
+    def _load_florence_config_from_pretrained(self, config_dict: dict[str, Any]) -> dict[str, Any]:
+        if self.pretrained_path is None:
+            return config_dict
+
+        model_id = str(self.pretrained_path)
+        config_file: Path | None = None
+        if Path(model_id).is_dir():
+            candidate = Path(model_id) / CONFIG_NAME
+            if candidate.exists():
+                config_file = candidate
+        else:
+            try:
+                config_file = Path(
+                    hf_hub_download(
+                        repo_id=model_id,
+                        filename=CONFIG_NAME,
+                    )
+                )
+            except HfHubHTTPError:
+                return config_dict
+
+        if config_file is None:
+            return config_dict
+
+        try:
+            with open(config_file) as file_handle:
+                pretrained_config = json.load(file_handle)
+        except (OSError, json.JSONDecodeError):
+            return config_dict
+
+        pretrained_florence = pretrained_config.get("florence_config")
+        if not isinstance(pretrained_florence, dict):
+            return config_dict
+
+        return {**pretrained_florence, **config_dict}
 
     def validate_features(self) -> None:
         if not self.image_features:
