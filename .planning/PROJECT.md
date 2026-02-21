@@ -17,11 +17,12 @@ stability and operability.
 
 - ✓ Distributed online RL runtime exists with actor/learner + gRPC transport + queue streaming — existing
 - ✓ Replay buffer and online optimization loop are productionized for SAC — existing
-- ✓ Policy registration and config plumbing support extensible policy types — existing
+- ✓ Flow-matching policy implementations already exist (including XVLA) — existing
 
 ### Active
 
-- [ ] Add PI-RL-capable policy/config path for flow-based VLA fine-tuning in LeRobot.
+- [ ] Add PI-RL recipe configuration and routing that is independent from policy type selection.
+- [ ] Ensure PI-RL recipe can run on flow-matching policies, with XVLA as first validated target.
 - [ ] Extend learner optimization flow for PI-RL objectives and log-prob-aware updates.
 - [ ] Preserve compatibility with current transport/process architecture and SAC training route.
 - [ ] Add verification coverage (unit/integration) for PI-RL data flow and training contracts.
@@ -38,7 +39,7 @@ stability and operability.
 - Target method: PI-RL (`arXiv:2510.25889`) and RLinf reference implementation.
 - PI-RL is an online RL fine-tuning approach for flow-based VLA models with Flow-Noise and Flow-SDE variants.
 - LeRobot already has a distributed RL actor/learner runtime under `src/lerobot/rl/`, currently SAC-centric.
-- User goal: plan and execute an extension path for PI-RL support in `src/lerobot/rl/` and adjacent policy/config wiring.
+- User goal: plan and execute an extension path for PI-RL recipe support in `src/lerobot/rl/`, applicable to flow-matching policies (XVLA first).
 
 ## Constraints
 
@@ -53,7 +54,7 @@ stability and operability.
 |----------|-----------|---------|
 | PI-RL treated as online RL extension path | Paper and RLinf training loop are online rollout/update-driven | — Pending |
 | Keep LeRobot-native runtime and integrate recipe incrementally | Lowest integration risk, preserves existing operational model | — Pending |
-| Phase PI-RL support behind explicit config/policy wiring | Allows coexistence with SAC and safer rollout | — Pending |
+| Model PI-RL as a recipe layer, not a policy type | PI-RL should apply to any flow-matching policy and avoid forking policy taxonomy | — Pending |
 
 ---
 *Last updated: 2026-02-21 after initialization*

@@ -7,29 +7,29 @@
 
 Requirements for initial release. Each maps to roadmap phases.
 
-### Policy and Configuration
+### Recipe and Configuration
 
-- [ ] **POL-01**: User can select `pi_rl` as a policy type through existing config parsing and policy factory flow.
-- [ ] **POL-02**: User can configure PI-RL variant behavior (Flow-Noise vs Flow-SDE style options) through structured policy config fields.
-- [ ] **POL-03**: User can instantiate PI-RL policy and processors without breaking existing built-in policy initialization paths.
+- [ ] **RCP-01**: User can enable PI-RL as a training recipe independently of policy type selection.
+- [ ] **RCP-02**: User can run PI-RL recipe with flow-matching policies, with XVLA as the first validated target.
+- [ ] **RCP-03**: User can configure PI-RL variant behavior (Flow-Noise vs Flow-SDE style options) through structured recipe config fields.
 
 ### Learner Training Flow
 
-- [ ] **LRN-01**: User can run learner with PI-RL policy type and execute a PI-RL-specific optimization branch.
+- [ ] **LRN-01**: User can run learner in PI-RL recipe mode and execute a PI-RL-specific optimization branch.
 - [ ] **LRN-02**: User can train PI-RL online using existing replay-buffer transition schema and queue/gRPC flow.
-- [ ] **LRN-03**: User can checkpoint and resume PI-RL training using existing checkpoint conventions.
+- [ ] **LRN-03**: User can checkpoint and resume PI-RL recipe training using existing checkpoint conventions.
 
 ### Actor and Runtime Compatibility
 
-- [ ] **ACT-01**: User can run actor process with PI-RL policy and receive learner-updated parameters through existing stream path.
+- [ ] **ACT-01**: User can run actor process with XVLA under PI-RL recipe mode and receive learner-updated parameters through existing stream path.
 - [ ] **ACT-02**: User can complete rollout interactions without transport/proto contract changes in MVP scope.
 - [ ] **ACT-03**: User can keep SAC runtime flow operational after PI-RL integration.
 
 ### Verification and Documentation
 
-- [ ] **VAL-01**: User can rely on automated tests covering PI-RL config/factory wiring and learner branch behavior.
-- [ ] **VAL-02**: User can rely on integration checks for actor↔learner parameter/transition flow in PI-RL mode.
-- [ ] **DOC-01**: User can follow a documented PI-RL training recipe (configs + command flow) for initial runs.
+- [ ] **VAL-01**: User can rely on automated tests covering PI-RL recipe selection, learner branch behavior, and XVLA integration.
+- [ ] **VAL-02**: User can rely on integration checks for actor↔learner parameter/transition flow in XVLA + PI-RL mode.
+- [ ] **DOC-01**: User can follow a documented PI-RL training recipe (configs + command flow) and understand how to extend it to other flow-matching policies.
 
 ## v2 Requirements
 
@@ -57,9 +57,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| POL-01 | Phase 1 | Pending |
-| POL-02 | Phase 1 | Pending |
-| POL-03 | Phase 1 | Pending |
+| RCP-01 | Phase 1 | Pending |
+| RCP-02 | Phase 1 | Pending |
+| RCP-03 | Phase 1 | Pending |
 | LRN-01 | Phase 2 | Pending |
 | LRN-02 | Phase 2 | Pending |
 | LRN-03 | Phase 2 | Pending |

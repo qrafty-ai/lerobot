@@ -2,9 +2,9 @@
 
 ## Overview
 
-This roadmap delivers PI-RL support through a low-risk sequence: first wire policy/config integration,
-then add learner algorithm behavior, then validate distributed runtime compatibility and regressions,
-and finally package runnable docs/config recipes for adoption.
+This roadmap delivers PI-RL support through a low-risk sequence: first wire recipe-level configuration
+and XVLA baseline compatibility, then add learner recipe behavior, then validate distributed runtime
+compatibility and regressions, and finally package runnable docs/config recipes for adoption.
 
 ## Phases
 
@@ -14,41 +14,41 @@ and finally package runnable docs/config recipes for adoption.
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: PI-RL Foundation Wiring** - Add policy/config/factory registration and base PI-RL module skeleton.
+- [ ] **Phase 1: PI-RL Recipe Foundation** - Add recipe-level config/routing and XVLA-first integration baseline.
 - [ ] **Phase 2: Learner PI-RL Training Path** - Add PI-RL learner branch and training-step integration using existing replay flow.
 - [ ] **Phase 3: Runtime Compatibility and Verification** - Prove actor/learner compatibility and protect SAC with tests.
 - [ ] **Phase 4: Recipes and Operational Docs** - Publish runnable PI-RL recipes and usage guidance.
 
 ## Phase Details
 
-### Phase 1: PI-RL Foundation Wiring
-**Goal**: Make PI-RL selectable and instantiable through LeRobot's existing config and factory pathways.
+### Phase 1: PI-RL Recipe Foundation
+**Goal**: Make PI-RL selectable as a training recipe independent of policy type, validated first with XVLA.
 **Depends on**: Nothing (first phase)
-**Requirements**: [POL-01, POL-02, POL-03]
+**Requirements**: [RCP-01, RCP-02, RCP-03]
 **Success Criteria** (what must be TRUE):
-  1. User can set `--policy.type=pi_rl` and configuration parses without manual patches.
-  2. Policy factory returns PI-RL policy class and processor path correctly.
-  3. Baseline policy instantiation tests pass with PI-RL configuration.
+  1. User can enable PI-RL recipe mode while keeping policy type as a flow-matching policy (XVLA baseline).
+  2. Recipe routing does not require introducing `pi_rl` as a new policy type.
+  3. Baseline config/runtime selection tests pass for XVLA + PI-RL recipe setup.
 **Plans**: 3 plans
 
 Plans:
-- [ ] 01-01: Create `policies/pi_rl` config/model/processor modules following LeRobot conventions.
-- [ ] 01-02: Wire `pi_rl` into policy factory and related exported policy lists.
-- [ ] 01-03: Add focused tests for config parsing and factory instantiation.
+- [ ] 01-01: Define recipe-level PI-RL config knobs and selection path in training config.
+- [ ] 01-02: Wire recipe dispatch logic so it applies to flow-matching policies without changing policy taxonomy.
+- [ ] 01-03: Add focused tests for recipe selection and XVLA compatibility.
 
 ### Phase 2: Learner PI-RL Training Path
 **Goal**: Enable learner-side PI-RL optimization while reusing existing transport/replay runtime.
 **Depends on**: Phase 1
 **Requirements**: [LRN-01, LRN-02, LRN-03]
 **Success Criteria** (what must be TRUE):
-  1. Learner can enter a PI-RL-specific update branch based on policy type.
+  1. Learner can enter a PI-RL-specific update branch based on recipe mode, not policy type.
   2. PI-RL branch consumes replay-buffer transitions from current actor stream.
-  3. PI-RL checkpoints can be saved and resumed through existing conventions.
+  3. PI-RL recipe checkpoints can be saved and resumed through existing conventions.
 **Plans**: 3 plans
 
 Plans:
 - [ ] 02-01: Implement PI-RL learner branch and update scheduling hooks.
-- [ ] 02-02: Integrate PI-RL loss/optimizer calls through policy-forward contracts.
+- [ ] 02-02: Integrate PI-RL loss/optimizer calls through flow-matching policy-forward contracts (XVLA first).
 - [ ] 02-03: Validate checkpoint/resume flow for PI-RL path.
 
 ### Phase 3: Runtime Compatibility and Verification
@@ -56,7 +56,7 @@ Plans:
 **Depends on**: Phase 2
 **Requirements**: [ACT-01, ACT-02, ACT-03, VAL-01, VAL-02]
 **Success Criteria** (what must be TRUE):
-  1. Actor receives and applies learner-updated PI-RL parameters correctly.
+  1. Actor receives and applies learner-updated parameters correctly in XVLA + PI-RL mode.
   2. Existing gRPC/queue transition flow remains unchanged and functional.
   3. SAC tests and PI-RL regression checks pass together.
 **Plans**: 3 plans
@@ -87,7 +87,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. PI-RL Foundation Wiring | 0/3 | Not started | - |
+| 1. PI-RL Recipe Foundation | 0/3 | Not started | - |
 | 2. Learner PI-RL Training Path | 0/3 | Not started | - |
 | 3. Runtime Compatibility and Verification | 0/3 | Not started | - |
 | 4. Recipes and Operational Docs | 0/2 | Not started | - |

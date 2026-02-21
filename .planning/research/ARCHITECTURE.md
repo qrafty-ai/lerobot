@@ -40,7 +40,7 @@
 | Learner runtime | Scheduling updates, batching, optimizer steps | `src/lerobot/rl/learner.py` |
 | Actor runtime | Environment interaction and transition emission | `src/lerobot/rl/actor.py` |
 | Transport service | Streams transitions/interactions/parameters | `src/lerobot/rl/learner_service.py` |
-| Config/factory layer | Registration and instantiation of policy types | `PreTrainedConfig` + `policies/factory.py` |
+| Recipe/config layer | Recipe mode selection and routing independent of policy type | `TrainRLServerPipelineConfig` + learner recipe dispatch |
 
 ## Recommended Project Structure
 
@@ -48,35 +48,32 @@
 src/
 └── lerobot/
     ├── policies/
-    │   └── pi_rl/
-    │       ├── configuration_pi_rl.py   # PI-RL config registration
-    │       ├── modeling_pi_rl.py        # PI-RL policy/loss logic
-    │       └── processor_pi_rl.py       # pre/post processor factory
+    │   └── xvla/                        # first validated flow-matching target for PI-RL recipe
     ├── rl/
-    │   ├── learner.py                   # add pi_rl training branch
+    │   ├── learner.py                   # add recipe-mode PI-RL training branch
     │   └── actor.py                     # preserve actor sync contract
     └── configs/
-        └── train.py                     # optional train-level knobs
+        └── train.py                     # recipe-level knobs and selection
 ```
 
 ### Structure Rationale
 
-- **`policies/pi_rl/`** keeps algorithm-specific complexity isolated from runtime orchestration.
-- **`rl/learner.py` branch-by-policy** minimizes risk by reusing current transport and replay path.
-- **factory/config updates** keep PI-RL available through existing CLI and parser conventions.
+- **recipe layer in `rl/learner.py` + `configs/train.py`** keeps PI-RL orchestration explicit and policy-agnostic.
+- **XVLA-first validation** provides a concrete flow-matching integration target before broad rollout.
+- **minimal policy-factory changes** avoid misclassifying PI-RL as a standalone policy type.
 
 ## Architectural Patterns
 
-### Pattern 1: Policy-Centric Algorithm Logic
+### Pattern 1: Recipe-Centric Orchestration
 
-**What:** Keep loss computation and model-specific math inside policy module.
-**When to use:** New RL algorithm introduces distinct objectives.
-**Trade-offs:** Cleaner layering; requires policy interface consistency.
+**What:** Keep PI-RL mode selection and update scheduling in recipe-level learner logic.
+**When to use:** Algorithm is a training recipe applicable across multiple policy families.
+**Trade-offs:** Better reuse across policies; requires a clear policy capability contract.
 
 ### Pattern 2: Learner Orchestration Branching
 
-**What:** Route training behavior by `cfg.policy.type` in learner.
-**When to use:** Existing loop is SAC-specific and new method differs materially.
+**What:** Route training behavior by recipe mode in learner.
+**When to use:** Existing loop is SAC-specific and PI-RL should not be encoded as a policy identity.
 **Trade-offs:** Fast, safe integration; can accumulate branches if not refactored later.
 
 ### Pattern 3: Transport Contract Preservation
@@ -155,8 +152,8 @@ Policy actor state (actor process)
 | Boundary | Communication | Notes |
 |----------|---------------|-------|
 | `rl/actor.py` ↔ `rl/learner_service.py` | gRPC streaming | Keep message semantics stable |
-| `rl/learner.py` ↔ `policies/pi_rl` | direct policy calls | Branch by `cfg.policy.type` |
-| `policies/factory.py` ↔ `configs/policies.py` | registry/factory | Required for CLI instantiation |
+| `rl/learner.py` ↔ flow-matching policies (`policies/xvla` first) | direct policy calls | Branch by recipe mode, not policy type |
+| `configs/train.py` ↔ `rl/learner.py` | config-driven dispatch | Required for recipe selection and variant controls |
 
 ## Sources
 

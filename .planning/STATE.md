@@ -5,11 +5,11 @@
 See: .planning/PROJECT.md (updated 2026-02-21)
 
 **Core value:** Enable reliable online RL fine-tuning of flow-based VLA policies in LeRobot while preserving existing RL stability and operability.
-**Current focus:** Phase 1 - PI-RL Foundation Wiring
+**Current focus:** Phase 1 - PI-RL Recipe Foundation
 
 ## Current Position
 
-Phase: 1 of 4 (PI-RL Foundation Wiring)
+Phase: 1 of 4 (PI-RL Recipe Foundation)
 Plan: 0 of 3 in current phase
 Status: Ready to plan
 Last activity: 2026-02-21 - Initialized project docs, research, requirements, and roadmap artifacts
@@ -52,7 +52,7 @@ None yet.
 
 ### Blockers/Concerns
 
-- Need phase-level implementation planning for PI-RL losses/update semantics in LeRobot policy interface.
+- Need phase-level implementation planning for PI-RL recipe hooks over flow-matching policy interfaces (XVLA first).
 
 ## Session Continuity
 

@@ -12,11 +12,11 @@ Features users assume exist. Missing these = PI-RL support is not practically us
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| `pi_rl` policy/config registration | New RL method must be selectable like existing policies | MEDIUM | Requires `PreTrainedConfig` registration + factory wiring |
+| PI-RL recipe selector independent of policy type | PI-RL should run as a training recipe, not a separate policy family | MEDIUM | Add recipe-level config/routing in RL training path |
 | Learner-side PI-RL optimization path | New method must train end-to-end in current actor/learner flow | HIGH | Current learner loop is SAC-centric |
 | Actor inference compatibility | Actor process must keep receiving usable policy params | MEDIUM | Must preserve `.actor` parameter streaming contract |
 | Replay-buffer-compatible data path | Must reuse current transition stream for MVP | MEDIUM | Avoid proto/schema redesign in first milestone |
-| Test coverage for config/factory/runtime path | Regression safety against SAC and transport flow | MEDIUM | Add policy, learner branch, and transport/queue checks |
+| Test coverage for recipe/runtime path | Regression safety against SAC and transport flow | MEDIUM | Add XVLA + PI-RL, learner branch, and transport/queue checks |
 
 ### Differentiators (Competitive Advantage)
 
@@ -40,8 +40,8 @@ Features that make this extension strategically strong beyond a basic port.
 
 ```
 PI-RL training loop support
-    └──requires──> pi_rl policy/config registration
-                       └──requires──> factory + parser compatibility
+    └──requires──> recipe-level PI-RL selection in training config
+                       └──requires──> flow-matching policy compatibility (XVLA first)
 
 Hybrid online+offline mode ──requires──> stable online-only PI-RL path
 
@@ -50,7 +50,7 @@ Benchmark recipes ──enhances──> validated PI-RL training/eval flow
 
 ### Dependency Notes
 
-- **PI-RL training loop requires policy/config wiring:** learner cannot route updates without a recognized policy type.
+- **PI-RL training loop requires recipe routing:** learner must dispatch by recipe mode while preserving policy identity.
 - **Hybrid mode depends on online-first stability:** blending offline data is safer after online behavior is validated.
 - **Benchmark recipes depend on validated core flow:** otherwise failures are hard to localize.
 
@@ -58,7 +58,7 @@ Benchmark recipes ──enhances──> validated PI-RL training/eval flow
 
 ### Launch With (v1)
 
-- [ ] `pi_rl` policy/config/factory integration — makes method selectable.
+- [ ] PI-RL recipe config/routing integration — makes recipe selectable without new policy type.
 - [ ] Learner PI-RL branch with online replay loop compatibility — makes method trainable.
 - [ ] Actor parameter sync + inference path preserved — keeps distributed runtime working.
 - [ ] Unit/integration tests for new path — protects regressions.
@@ -78,7 +78,7 @@ Benchmark recipes ──enhances──> validated PI-RL training/eval flow
 
 | Feature | User Value | Implementation Cost | Priority |
 |---------|------------|---------------------|----------|
-| Policy/config/factory wiring | HIGH | MEDIUM | P1 |
+| Recipe config/routing wiring | HIGH | MEDIUM | P1 |
 | Learner PI-RL optimization branch | HIGH | HIGH | P1 |
 | Actor sync compatibility | HIGH | MEDIUM | P1 |
 | Tests for new runtime path | HIGH | MEDIUM | P1 |
@@ -96,7 +96,7 @@ Benchmark recipes ──enhances──> validated PI-RL training/eval flow
 |---------|-------|-------------------|--------------|
 | PI-RL recipe support | Present | Absent | Add LeRobot-native PI-RL path |
 | Online actor/learner runtime | Present | Present | Reuse LeRobot runtime with algorithm extension |
-| Flow-based VLA RL fine-tuning | Present | Limited in RL runtime | Add policy/loss integration incrementally |
+| Flow-based VLA RL fine-tuning | Present | Limited in RL runtime | Add recipe-layer integration on XVLA, then generalize |
 
 ## Sources
 

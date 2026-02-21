@@ -12,7 +12,7 @@
 Actor cannot load learner-updated parameters or silently loads incomplete state.
 
 **Why it happens:**
-New policy architecture changes what must be streamed to actor, but transport payload handling is left unchanged.
+Recipe-level PI-RL integration changes what must be streamed to actor, but transport payload handling is left unchanged.
 
 **How to avoid:**
 Define and test PI-RL actor-side required state explicitly; keep `policy.actor` stream contract stable for MVP.
@@ -87,15 +87,15 @@ Phase 3
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
 | Hardcode PI-RL tuning constants in learner | Faster initial coding | Opaque behavior and poor reproducibility | Never (use config fields) |
-| Couple PI-RL loss logic directly into learner file | Fewer files changed | Blurred boundaries and harder maintenance | Never (keep in policy module) |
+| Couple PI-RL recipe routing to policy-type checks | Fewer files changed | Wrong abstraction and poor extensibility | Never (route by recipe mode) |
 | Skip tests for runtime branching | Faster merge | High regression risk on SAC path | Never |
 
 ## Integration Gotchas
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| Factory wiring | Add config but miss `get_policy_class` or processors | Wire config, model, and processor paths together |
-| CLI parsing | New policy not fully parsable from train config | Use `PreTrainedConfig.register_subclass` and validate parser path |
+| Recipe wiring | Add PI-RL knobs but no learner dispatch | Wire train config recipe mode to learner branch explicitly |
+| CLI parsing | Recipe mode not represented in train config | Add recipe fields in train config and validate parser path |
 | Actor sync | Stream wrong state components | Keep actor-required state explicit and tested |
 
 ## Performance Traps
@@ -122,7 +122,7 @@ Phase 3
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **PI-RL policy wired:** verify train config can instantiate policy through factory and parser.
+- [ ] **PI-RL recipe wired:** verify train config can enable recipe mode while keeping policy type (XVLA baseline).
 - [ ] **Learner branch works:** verify optimization steps execute and checkpoints save.
 - [ ] **Actor sync works:** verify actor receives and loads updated params continuously.
 - [ ] **SAC unaffected:** verify SAC path still passes targeted RL tests.
