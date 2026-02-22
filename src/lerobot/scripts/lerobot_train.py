@@ -26,7 +26,12 @@ from termcolor import colored
 from torch.optim import Optimizer
 
 from lerobot.configs import parser
-from lerobot.configs.train import TrainPipelineConfig
+from lerobot.configs.train import (
+    TrainPipelineConfig,
+    log_recipe_preflight_summary,
+    validate_recipe_runtime_preflight,
+)
+from lerobot.configs.types import PI_RL_RECIPE_VALUE
 from lerobot.datasets.factory import make_dataset
 from lerobot.datasets.sampler import EpisodeAwareSampler
 from lerobot.datasets.utils import cycle
@@ -166,6 +171,7 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
         accelerator: Optional Accelerator instance. If None, one will be created automatically.
     """
     cfg.validate()
+    preflight_context = validate_recipe_runtime_preflight(cfg)
 
     # Create Accelerator if not provided
     # It will automatically detect if running in distributed mode or single-process mode
@@ -185,6 +191,14 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
         )
 
     init_logging(accelerator=accelerator)
+    log_recipe_preflight_summary(preflight_context, role="TRAIN")
+
+    if preflight_context.recipe == PI_RL_RECIPE_VALUE:
+        raise RuntimeError(
+            "`recipe=pi-rl` is served by distributed RL runtime. "
+            "Start learner with `python -m lerobot.rl.learner --config_path <train_config.json>` "
+            "and actor with `python -m lerobot.rl.actor --config_path <train_config.json>` using the same config path."
+        )
 
     # Determine if this is the main process (for logging and checkpointing)
     # When using accelerate, only the main process should log to avoid duplicate outputs
