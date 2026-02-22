@@ -146,6 +146,7 @@ def test_phase1_recipe_acceptance_matrix_keeps_policy_taxonomy_and_variant_contr
     cfg.validate()
     context = validate_recipe_runtime_preflight(cfg)
 
+    assert cfg.policy is not None
     assert context.recipe == "pi-rl", f"{rcp_id}"
     assert context.variant == variant, f"{rcp_id}"
     assert cfg.policy.type == "xvla", f"{rcp_id}"
