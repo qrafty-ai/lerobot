@@ -10,31 +10,32 @@ See: .planning/PROJECT.md (updated 2026-02-21)
 ## Current Position
 
 Phase: 1 of 4 (PI-RL Recipe Foundation)
-Plan: 0 of 3 in current phase
-Status: Ready to plan
-Last activity: 2026-02-21 - Captured Phase 1 implementation context and locked recipe decisions
+Plan: 1 of 3
+Status: In progress
+Last activity: 2026-02-22 - Completed 01-01 PI-RL recipe config and validation foundation
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█░░░░░░░░░] 9%
 
 ## Performance Metrics
 
 **Velocity:**
 - Total plans completed: 0
-- Average duration: -
-- Total execution time: 0.0 hours
+- Average duration: 2 min
+- Total execution time: 0.03 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 1 | 0/3 | - | - |
+| 1 | 1/3 | 2 min | 2 min |
 | 2 | 0/3 | - | - |
 | 3 | 0/3 | - | - |
 | 4 | 0/2 | - | - |
 
 **Recent Trend:**
-- Last 5 plans: -
+- Last 5 plans: 01-01 (2 min)
 - Trend: Stable
+| Phase 01 P01 | 2 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -46,6 +47,8 @@ Recent decisions affecting current work:
 - [Init]: Treat PI-RL as online RL extension path.
 - [Init]: Integrate incrementally in LeRobot runtime instead of full RLinf runtime replacement.
 - [Update]: Use LIBERO benchmark as default simulation-first validation path for PI-RL milestones.
+- [Phase 01-01]: Use strict canonical pi-rl recipe at parser preflight. — Prevents ambiguous spellings and gives deterministic correction hints before runtime startup.
+- [Phase 01-01]: Require PI-RL variant and variant-specific knobs only when recipe=pi-rl. — Preserves default behavior when recipe is unset while enforcing strict PI-RL safety gates.
 
 ### Pending Todos
 
@@ -57,6 +60,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-21 19:56
-Stopped at: Phase 1 context gathered
-Resume file: .planning/phases/01-pi-rl-recipe-foundation/01-CONTEXT.md
+Last session: 2026-02-22 02:29 UTC
+Stopped at: Completed 01-01-PLAN.md
+Resume file: .planning/phases/01-pi-rl-recipe-foundation/01-02-PLAN.md
