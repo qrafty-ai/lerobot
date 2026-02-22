@@ -43,6 +43,7 @@ stability and operability.
 - User goal: plan and execute an extension path for PI-RL recipe support in `src/lerobot/rl/`, applicable to flow-matching policies (XVLA first).
 - Real-robot testing is currently constrained; validation should run through LeRobot's LIBERO simulation benchmark path.
 - LIBERO evaluation path and command patterns are documented in `docs/source/libero.mdx` and should be copied into phase gates.
+- Actor/learner orchestration pattern for simulation training should follow `docs/source/hilserl_sim.mdx` and be adapted to LIBERO PI-RL configs.
 
 ## Constraints
 

@@ -18,6 +18,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **LRN-01**: User can run learner in PI-RL recipe mode and execute a PI-RL-specific optimization branch.
 - [ ] **LRN-02**: User can train PI-RL online using existing replay-buffer transition schema and queue/gRPC flow.
 - [ ] **LRN-03**: User can checkpoint and resume PI-RL recipe training using existing checkpoint conventions.
+- [ ] **LRN-04**: User can execute a self-contained LIBERO training smoke run for PI-RL (XVLA target) using documented orchestration.
 
 ### Actor and Runtime Compatibility
 
@@ -66,6 +67,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LRN-01 | Phase 2 | Pending |
 | LRN-02 | Phase 2 | Pending |
 | LRN-03 | Phase 2 | Pending |
+| LRN-04 | Phase 2 | Pending |
 | ACT-01 | Phase 3 | Pending |
 | ACT-02 | Phase 3 | Pending |
 | ACT-03 | Phase 3 | Pending |
@@ -77,8 +79,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DOC-01 | Phase 4 | Pending |
 
 **Coverage:**
-- v1 requirements: 15 total
-- Mapped to phases: 15
+- v1 requirements: 16 total
+- Mapped to phases: 16
 - Unmapped: 0
 
 ---

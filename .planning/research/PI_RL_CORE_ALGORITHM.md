@@ -77,7 +77,7 @@ for each interaction cycle:
 - SAC path remains functional and non-regressed.
 - Checkpoint/resume and logging work for PI-RL runs.
 
-## LIBERO Validation Protocol (Self-Contained)
+## LIBERO Training + Evaluation Protocol (Self-Contained)
 
 1. Install LIBERO extras:
 
@@ -91,7 +91,28 @@ pip install -e ".[libero]"
 export MUJOCO_GL=egl
 ```
 
-3. Run single-suite smoke evaluation on PI-RL output policy:
+3. Run LIBERO training flow for PI-RL work:
+
+```bash
+# Optional warm-start training in LIBERO environment
+lerobot-train \
+  --policy.type=xvla \
+  --dataset.repo_id=HuggingFaceVLA/libero \
+  --env.type=libero \
+  --env.task=libero_10 \
+  --output_dir=./outputs/pirl_libero_warmstart \
+  --steps=10000 \
+  --batch_size=4
+
+# PI-RL recipe training orchestration (HILSERL_SIM-style actor/learner split)
+# Terminal A
+python -m lerobot.rl.learner --config_path path/to/pirl_libero_train.json
+
+# Terminal B
+python -m lerobot.rl.actor --config_path path/to/pirl_libero_train.json
+```
+
+4. Run single-suite smoke evaluation on PI-RL output policy:
 
 ```bash
 lerobot-eval \
@@ -102,7 +123,7 @@ lerobot-eval \
   --eval.n_episodes=3
 ```
 
-4. Run multi-suite matrix evaluation:
+5. Run multi-suite matrix evaluation:
 
 ```bash
 lerobot-eval \
@@ -113,7 +134,7 @@ lerobot-eval \
   --eval.n_episodes=10
 ```
 
-5. Record per-suite success metrics and average; include run config (episodes, batch size, policy path).
+6. Record training run metadata (config path, total steps, checkpoint id) and per-suite success metrics + average.
 
 ## Sources
 
@@ -121,3 +142,4 @@ lerobot-eval \
 - RLinf reference implementation structure (runner/actor/loss pipelines).
 - Internal planning artifacts in `.planning/research/` and LeRobot RL codebase mapping.
 - LIBERO usage details from `docs/source/libero.mdx`.
+- HIL-SERL simulation orchestration pattern from `docs/source/hilserl_sim.mdx`.

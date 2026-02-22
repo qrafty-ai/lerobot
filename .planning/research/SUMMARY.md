@@ -42,6 +42,7 @@ inside recipe-level learner branching and flow-matching policy-compatible adapte
 - Learner PI-RL optimization branch and actor compatibility.
 - Replay-compatible online training flow and targeted tests.
 - LIBERO-first validation protocol with single-suite + multi-suite commands and reportable per-suite metrics.
+- LIBERO training protocol using HILSERL_SIM-style actor/learner orchestration plus reproducible config paths.
 
 **Should have (competitive):**
 - Flow-Noise/Flow-SDE variant toggles through config.
@@ -130,6 +131,7 @@ Phases with standard patterns (skip research-phase):
 - RLinf repository module mapping and runner/algorithm references.
 - LeRobot local architecture files under `src/lerobot/rl`, `src/lerobot/policies`, and `src/lerobot/configs`.
 - LeRobot LIBERO benchmark guidance in `docs/source/libero.mdx`.
+- LeRobot HIL-SERL simulation orchestration guidance in `docs/source/hilserl_sim.mdx`.
 
 ### Secondary (MEDIUM confidence)
 - Private PI-RL code summary in `qrafty-ai/research`.

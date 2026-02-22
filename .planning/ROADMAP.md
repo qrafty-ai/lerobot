@@ -39,17 +39,42 @@ Plans:
 ### Phase 2: Learner PI-RL Training Path
 **Goal**: Enable learner-side PI-RL optimization while reusing existing transport/replay runtime.
 **Depends on**: Phase 1
-**Requirements**: [LRN-01, LRN-02, LRN-03]
+**Requirements**: [LRN-01, LRN-02, LRN-03, LRN-04]
 **Success Criteria** (what must be TRUE):
   1. Learner can enter a PI-RL-specific update branch based on recipe mode, not policy type.
   2. PI-RL branch consumes replay-buffer transitions from current actor stream.
   3. PI-RL recipe checkpoints can be saved and resumed through existing conventions.
+  4. LIBERO training smoke run completes with documented PI-RL orchestration (XVLA target).
 **Plans**: 3 plans
 
 Plans:
 - [ ] 02-01: Implement PI-RL learner branch and update scheduling hooks.
 - [ ] 02-02: Integrate PI-RL loss/optimizer calls through flow-matching policy-forward contracts (XVLA first).
-- [ ] 02-03: Validate checkpoint/resume flow for PI-RL path.
+- [ ] 02-03: Validate checkpoint/resume and run LIBERO training smoke flow for PI-RL path.
+
+Training commands (Phase 2 gate):
+
+```bash
+pip install -e ".[libero]"
+export MUJOCO_GL=egl
+
+# Optional supervised warm-start in LIBERO environment
+lerobot-train \
+  --policy.type=xvla \
+  --dataset.repo_id=HuggingFaceVLA/libero \
+  --env.type=libero \
+  --env.task=libero_10 \
+  --output_dir=./outputs/pirl_libero_warmstart \
+  --steps=10000 \
+  --batch_size=4
+
+# PI-RL online recipe orchestration (HILSERL_SIM style: actor + learner)
+# Terminal A
+python -m lerobot.rl.learner --config_path path/to/pirl_libero_train.json
+
+# Terminal B
+python -m lerobot.rl.actor --config_path path/to/pirl_libero_train.json
+```
 
 ### Phase 3: Runtime Compatibility and Verification
 **Goal**: Validate distributed runtime correctness and prevent regressions on SAC and transport behavior with LIBERO-first simulation testing.
@@ -101,7 +126,7 @@ Phase 3 deliverable artifact:
 **Depends on**: Phase 3
 **Requirements**: [DOC-01]
 **Success Criteria** (what must be TRUE):
-  1. Users can follow documented commands/configs to launch PI-RL learner+actor flow.
+  1. Users can follow documented commands/configs to launch PI-RL LIBERO training (learner+actor) and evaluation flow.
   2. Docs include self-contained LIBERO test commands (install/setup/rendering/single-suite/multi-suite).
   3. Docs clearly explain what changed, what stayed stable, and known limits.
   4. Example recipe artifacts align with tested runtime behavior and recorded LIBERO metrics.
