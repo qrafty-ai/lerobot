@@ -21,6 +21,7 @@ import pytest
 import torch
 from torch.multiprocessing import Event, Queue
 
+from lerobot.configs.train import RecipePreflightContext, log_recipe_preflight_summary
 from lerobot.utils.constants import OBS_STR
 from lerobot.utils.transition import Transition
 from tests.utils import require_package
@@ -207,3 +208,40 @@ def test_interactions_stream():
     for i, message in enumerate(streamed_data):
         deserialized_interaction = bytes_to_python_object(message.data)
         assert deserialized_interaction == test_interactions[i]
+
+
+def test_log_recipe_preflight_summary_emits_deterministic_actor_message():
+    context = RecipePreflightContext(
+        recipe="pi-rl",
+        policy_type="xvla",
+        variant="flow-noise",
+        config_path="/tmp/train_config.json",
+        config_hash="abc123",
+    )
+
+    with patch("logging.info") as mocked_log:
+        log_recipe_preflight_summary(context, role="ACTOR")
+
+    mocked_log.assert_called_once_with(
+        "[%s] recipe preflight: recipe=%s policy=%s variant=%s config_path=%s",
+        "ACTOR",
+        "pi-rl",
+        "xvla",
+        "flow-noise",
+        "/tmp/train_config.json",
+    )
+
+
+def test_log_recipe_preflight_summary_skips_when_recipe_unset():
+    context = RecipePreflightContext(
+        recipe=None,
+        policy_type="sac",
+        variant=None,
+        config_path="/tmp/train_config.json",
+        config_hash="abc123",
+    )
+
+    with patch("logging.info") as mocked_log:
+        log_recipe_preflight_summary(context, role="ACTOR")
+
+    mocked_log.assert_not_called()

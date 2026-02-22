@@ -17,13 +17,25 @@
 import socket
 import threading
 import time
+from typing import Any, cast
 
 import pytest
 import torch
+from torch import nn
 from torch.multiprocessing import Event, Queue
 
-from lerobot.configs.train import TrainRLServerPipelineConfig
+from lerobot.configs.train import (
+    PI_RL_CONFIG_HASH_METADATA_KEY,
+    PI_RL_CONFIG_PATH_METADATA_KEY,
+    PIRLConfig,
+    TrainRLServerPipelineConfig,
+    build_recipe_preflight_context,
+    validate_recipe_runtime_preflight,
+)
 from lerobot.policies.sac.configuration_sac import SACConfig
+from lerobot.policies.sac.modeling_sac import SACPolicy
+from lerobot.policies.xvla.configuration_xvla import XVLAConfig
+from lerobot.transport.utils import state_to_bytes
 from lerobot.utils.constants import OBS_STR
 from lerobot.utils.transition import Transition
 from tests.utils import require_package
@@ -68,6 +80,12 @@ def find_free_port():
         s.listen(1)
         port = s.getsockname()[1]
         return port
+
+
+class _DummySyncPolicy(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.actor = nn.Linear(2, 2)
 
 
 @pytest.fixture
@@ -296,3 +314,57 @@ def test_end_to_end_parameters_flow(cfg, data_size):
     assert received_params.keys() == input_params.keys()
     for key in input_params:
         assert torch.allclose(received_params[key], input_params[key])
+
+
+def test_runtime_preflight_allows_xvla_pi_rl_startup(cfg):
+    cfg.policy = XVLAConfig(push_to_hub=False)
+    cfg.recipe = "pi-rl"
+    cfg.pirl = PIRLConfig(variant="flow-noise", temperature=0.7, target_noise_scale=0.1)
+
+    context = validate_recipe_runtime_preflight(cfg)
+
+    assert context.recipe == "pi-rl"
+    assert context.policy_type == "xvla"
+    assert context.variant == "flow-noise"
+
+
+def test_runtime_preflight_rejects_non_xvla_pi_rl_with_allowed_list(cfg):
+    cfg.recipe = "pi-rl"
+    cfg.pirl = PIRLConfig(variant="flow-noise", temperature=0.7, target_noise_scale=0.1)
+
+    with pytest.raises(
+        ValueError, match=r"Invalid `policy.type` value 'sac'.*Allowed policy types in Phase 1: \[xvla\]"
+    ):
+        validate_recipe_runtime_preflight(cfg)
+
+
+def test_update_policy_parameters_fails_with_actor_learner_config_path_hash_mismatch(cfg):
+    from lerobot.rl.actor import update_policy_parameters
+
+    parameters_queue = Queue()
+    policy = _DummySyncPolicy()
+
+    actor_context = build_recipe_preflight_context(cfg)
+    learner_path = "/tmp/other/train_config.json"
+    learner_hash = "deadbeef"
+
+    payload: dict[str, Any] = {
+        "policy": policy.actor.state_dict(),
+        PI_RL_CONFIG_PATH_METADATA_KEY: torch.tensor(list(learner_path.encode("utf-8")), dtype=torch.uint8),
+        PI_RL_CONFIG_HASH_METADATA_KEY: torch.tensor(list(learner_hash.encode("utf-8")), dtype=torch.uint8),
+    }
+    parameters_queue.put(state_to_bytes(cast(dict[str, torch.Tensor], payload)))
+
+    with pytest.raises(RuntimeError, match="Actor/Learner config mismatch") as exc_info:
+        update_policy_parameters(
+            policy=cast(SACPolicy, cast(object, policy)),
+            parameters_queue=parameters_queue,
+            device="cpu",
+            cfg=cfg,
+        )
+
+    message = str(exc_info.value)
+    assert f"actor_path={actor_context.config_path}" in message
+    assert f"learner_path={learner_path}" in message
+    assert f"actor_hash={actor_context.config_hash}" in message
+    assert f"learner_hash={learner_hash}" in message

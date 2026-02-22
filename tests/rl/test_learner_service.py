@@ -17,9 +17,13 @@ import threading
 import time
 from concurrent import futures
 from multiprocessing import Event, Queue
+from typing import Any
 
 import pytest
+import torch
 
+from lerobot.configs.train import PI_RL_CONFIG_HASH_METADATA_KEY, PI_RL_CONFIG_PATH_METADATA_KEY
+from lerobot.transport.utils import bytes_to_state_dict, state_to_bytes
 from tests.utils import require_package  # our gRPC servicer class
 
 
@@ -41,11 +45,11 @@ def learner_service_stub():
 
 @require_package("grpcio", "grpc")
 def create_learner_service_stub(
-    shutdown_event: Event,
+    shutdown_event: Any,
     parameters_queue: Queue,
     transitions_queue: Queue,
     interactions_queue: Queue,
-    seconds_between_pushes: int,
+    seconds_between_pushes: float,
     queue_get_timeout: float = 0.1,
 ):
     import grpc
@@ -372,3 +376,44 @@ def test_stream_parameters_waits_and_retries_on_empty_queue():
     close_learner_service_stub(channel, server)
 
     assert received_params == [b"param_after_wait", b"param_after_wait_2"]
+
+
+@require_package("grpcio", "grpc")
+@pytest.mark.timeout(3)  # force cross-platform watchdog
+def test_stream_parameters_preserves_recipe_config_metadata():
+    from lerobot.transport import services_pb2
+
+    shutdown_event = Event()
+    parameters_queue = Queue()
+    transitions_queue = Queue()
+    interactions_queue = Queue()
+
+    client, channel, server = create_learner_service_stub(
+        shutdown_event,
+        parameters_queue,
+        transitions_queue,
+        interactions_queue,
+        seconds_between_pushes=0.05,
+        queue_get_timeout=0.01,
+    )
+
+    config_path = "/tmp/train_config.json"
+    config_hash = "abc123"
+    payload = {
+        "policy.layer": torch.ones(1),
+        PI_RL_CONFIG_PATH_METADATA_KEY: torch.tensor(list(config_path.encode("utf-8")), dtype=torch.uint8),
+        PI_RL_CONFIG_HASH_METADATA_KEY: torch.tensor(list(config_hash.encode("utf-8")), dtype=torch.uint8),
+    }
+    parameters_queue.put(state_to_bytes(payload))
+
+    stream = client.StreamParameters(services_pb2.Empty())
+    message = next(stream)
+    decoded = bytes_to_state_dict(message.data)
+
+    shutdown_event.set()
+    close_learner_service_stub(channel, server)
+
+    decoded_path = bytes(decoded[PI_RL_CONFIG_PATH_METADATA_KEY].tolist()).decode("utf-8")
+    decoded_hash = bytes(decoded[PI_RL_CONFIG_HASH_METADATA_KEY].tolist()).decode("utf-8")
+    assert decoded_path == config_path
+    assert decoded_hash == config_hash
