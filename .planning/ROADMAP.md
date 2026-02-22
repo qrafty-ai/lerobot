@@ -14,7 +14,7 @@ compatibility and regressions using LIBERO benchmark suites, and finally package
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: PI-RL Recipe Foundation** - Add recipe-level config/routing and XVLA-first integration baseline.
+- [x] **Phase 1: PI-RL Recipe Foundation** - Add recipe-level config/routing and XVLA-first integration baseline.
 - [ ] **Phase 2: Learner PI-RL Training Path** - Add PI-RL learner branch and training-step integration using existing replay flow.
 - [ ] **Phase 3: Runtime Compatibility and Verification** - Prove actor/learner compatibility and protect SAC with tests.
 - [ ] **Phase 4: Recipes and Operational Docs** - Publish runnable PI-RL recipes and usage guidance.
@@ -34,7 +34,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 Plans:
 - [x] 01-01: Define recipe-level PI-RL config knobs and selection path in training config.
 - [x] 01-02: Wire recipe dispatch logic so it applies to flow-matching policies without changing policy taxonomy.
-- [ ] 01-03: Add focused tests for recipe selection and XVLA compatibility.
+- [x] 01-03: Add focused tests for recipe selection and XVLA compatibility.
 
 ### Phase 2: Learner PI-RL Training Path
 **Goal**: Enable learner-side PI-RL optimization while reusing existing transport/replay runtime.
@@ -143,7 +143,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. PI-RL Recipe Foundation | 2/3 | In Progress | - |
+| 1. PI-RL Recipe Foundation | 3/3 | Complete | 2026-02-22 |
 | 2. Learner PI-RL Training Path | 0/3 | Not started | - |
 | 3. Runtime Compatibility and Verification | 0/3 | Not started | - |
 | 4. Recipes and Operational Docs | 0/2 | Not started | - |
