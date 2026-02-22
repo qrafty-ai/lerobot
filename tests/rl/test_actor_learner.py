@@ -368,3 +368,24 @@ def test_update_policy_parameters_fails_with_actor_learner_config_path_hash_mism
     assert f"learner_path={learner_path}" in message
     assert f"actor_hash={actor_context.config_hash}" in message
     assert f"learner_hash={learner_hash}" in message
+
+
+@pytest.mark.parametrize(
+    "rcp_id,policy_cfg,should_pass",
+    [
+        ("RCP-02", XVLAConfig(push_to_hub=False), True),
+        ("RCP-02", SACConfig(), False),
+    ],
+)
+def test_phase1_startup_guard_matrix_for_pi_rl_recipe(rcp_id, policy_cfg, should_pass):
+    cfg = TrainRLServerPipelineConfig(policy=policy_cfg)
+    cfg.recipe = "pi-rl"
+    cfg.pirl = PIRLConfig(variant="flow-noise", temperature=0.7, target_noise_scale=0.1)
+
+    if should_pass:
+        context = validate_recipe_runtime_preflight(cfg)
+        assert context.policy_type == "xvla", f"{rcp_id}"
+        return
+
+    with pytest.raises(ValueError, match=r"Allowed policy types in Phase 1: \[xvla\]"):
+        validate_recipe_runtime_preflight(cfg)

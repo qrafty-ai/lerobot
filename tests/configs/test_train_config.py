@@ -9,6 +9,7 @@ from lerobot.configs.train import (
     PIRLFlowNoiseConfig,
     PIRLFlowSDEConfig,
     TrainRLServerPipelineConfig,
+    validate_recipe_runtime_preflight,
 )
 from lerobot.policies.sac.configuration_sac import SACConfig
 from lerobot.policies.xvla.configuration_xvla import XVLAConfig
@@ -117,3 +118,35 @@ def test_validate_rejects_invalid_flow_sde_bounds_with_fix_guidance():
 
     with pytest.raises(ValueError, match="Invalid `pirl.flow_sde.sigma_max` value 0.3.*greater than"):
         cfg.validate()
+
+
+@pytest.mark.parametrize(
+    "rcp_id,variant,variant_cfg",
+    [
+        ("RCP-01", "flow-noise", PIRLFlowNoiseConfig(std=0.1)),
+        ("RCP-03", "flow-sde", PIRLFlowSDEConfig(sigma_min=0.01, sigma_max=0.2)),
+    ],
+)
+def test_phase1_recipe_acceptance_matrix_keeps_policy_taxonomy_and_variant_controls(
+    rcp_id: str, variant: str, variant_cfg: PIRLFlowNoiseConfig | PIRLFlowSDEConfig
+):
+    cfg = TrainRLServerPipelineConfig(
+        recipe="pi-rl",
+        dataset=DatasetConfig(repo_id="lerobot/test"),
+        policy=XVLAConfig(push_to_hub=False),
+        pirl=PIRLConfig(
+            variant=variant,
+            temperature=0.7,
+            target_noise_scale=0.2,
+            flow_noise=variant_cfg if isinstance(variant_cfg, PIRLFlowNoiseConfig) else PIRLFlowNoiseConfig(),
+            flow_sde=variant_cfg if isinstance(variant_cfg, PIRLFlowSDEConfig) else PIRLFlowSDEConfig(),
+        ),
+    )
+
+    cfg.validate()
+    context = validate_recipe_runtime_preflight(cfg)
+
+    assert context.recipe == "pi-rl", f"{rcp_id}"
+    assert context.variant == variant, f"{rcp_id}"
+    assert cfg.policy.type == "xvla", f"{rcp_id}"
+    assert cfg.policy.type != "pi_rl", f"{rcp_id}: policy taxonomy should remain unchanged"
