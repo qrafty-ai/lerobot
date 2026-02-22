@@ -14,6 +14,9 @@
 # pyright: reportImportCycles=false, reportIncompatibleVariableOverride=false
 import builtins
 import datetime as dt
+import hashlib
+import json
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -38,6 +41,77 @@ from lerobot.optim.schedulers import LRSchedulerConfig
 from lerobot.utils.hub import HubMixin
 
 TRAIN_CONFIG_NAME = "train_config.json"
+PI_RL_PHASE1_ALLOWED_POLICIES = ("xvla",)
+PI_RL_CONFIG_PATH_METADATA_KEY = "__lerobot_recipe_config_path__"
+PI_RL_CONFIG_HASH_METADATA_KEY = "__lerobot_recipe_config_hash__"
+INLINE_CONFIG_PATH = "<inline>"
+
+
+@dataclass(frozen=True)
+class RecipePreflightContext:
+    recipe: str | None
+    policy_type: str
+    variant: str | None
+    config_path: str
+    config_hash: str
+
+
+def _normalize_config_path(config_path: str | None) -> str:
+    if config_path is None:
+        return INLINE_CONFIG_PATH
+    return str(Path(config_path).expanduser().resolve())
+
+
+def resolve_runtime_config_path() -> str:
+    return _normalize_config_path(parser.parse_arg("config_path"))
+
+
+def compute_runtime_config_hash(cfg: "TrainPipelineConfig") -> str:
+    encoded_cfg = draccus.encode(cfg)
+    normalized_cfg = json.dumps(encoded_cfg, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(normalized_cfg.encode("utf-8")).hexdigest()
+
+
+def build_recipe_preflight_context(cfg: "TrainPipelineConfig") -> RecipePreflightContext:
+    recipe = cfg._to_string_or_none(cfg.recipe)
+    variant = cfg._to_string_or_none(cfg.pirl.variant)
+    policy_type = "<unset>" if cfg.policy is None else cfg.policy.type
+    return RecipePreflightContext(
+        recipe=recipe,
+        policy_type=policy_type,
+        variant=variant,
+        config_path=resolve_runtime_config_path(),
+        config_hash=compute_runtime_config_hash(cfg),
+    )
+
+
+def validate_recipe_runtime_preflight(cfg: "TrainPipelineConfig") -> RecipePreflightContext:
+    context = build_recipe_preflight_context(cfg)
+    if context.recipe != PI_RL_RECIPE_VALUE:
+        return context
+
+    if context.policy_type not in PI_RL_PHASE1_ALLOWED_POLICIES:
+        allowed_policy_types = ", ".join(PI_RL_PHASE1_ALLOWED_POLICIES)
+        raise ValueError(
+            f"Invalid `policy.type` value {context.policy_type!r} for `recipe=pi-rl`. "
+            f"Allowed policy types in Phase 1: [{allowed_policy_types}]."
+        )
+
+    return context
+
+
+def log_recipe_preflight_summary(context: RecipePreflightContext, role: str) -> None:
+    if context.recipe is None:
+        return
+
+    logging.info(
+        "[%s] recipe preflight: recipe=%s policy=%s variant=%s config_path=%s",
+        role,
+        context.recipe,
+        context.policy_type,
+        context.variant,
+        context.config_path,
+    )
 
 
 @dataclass

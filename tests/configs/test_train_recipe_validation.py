@@ -4,7 +4,14 @@ import draccus
 import pytest
 
 from lerobot.configs.parser import validate_recipe_cli_args
-from lerobot.configs.train import PIRLConfig, PIRLFlowSDEConfig, TrainRLServerPipelineConfig
+from lerobot.configs.train import (
+    PIRLConfig,
+    PIRLFlowSDEConfig,
+    TrainRLServerPipelineConfig,
+    validate_recipe_runtime_preflight,
+)
+from lerobot.policies.sac.configuration_sac import SACConfig
+from lerobot.policies.xvla.configuration_xvla import XVLAConfig
 
 
 def test_train_rl_server_config_parse_defaults_without_recipe():
@@ -102,3 +109,37 @@ def test_validate_rejects_invalid_flow_sde_bounds():
 def test_parser_recipe_preflight_rejects_non_canonical_spelling():
     with pytest.raises(ValueError, match="Invalid `recipe` value 'PI_RL'.*canonical `pi-rl`"):
         validate_recipe_cli_args(["--recipe=PI_RL"])
+
+
+def test_runtime_preflight_allows_xvla_for_pi_rl():
+    cfg = TrainRLServerPipelineConfig(
+        recipe="pi-rl",
+        pirl=PIRLConfig(variant="flow-noise", temperature=0.7, target_noise_scale=0.1),
+        policy=XVLAConfig(),
+    )
+
+    context = validate_recipe_runtime_preflight(cfg)
+
+    assert context.recipe == "pi-rl"
+    assert context.policy_type == "xvla"
+    assert context.variant == "flow-noise"
+
+
+def test_runtime_preflight_rejects_non_xvla_for_pi_rl():
+    cfg = TrainRLServerPipelineConfig(
+        recipe="pi-rl",
+        pirl=PIRLConfig(variant="flow-noise", temperature=0.7, target_noise_scale=0.1),
+        policy=SACConfig(),
+    )
+
+    with pytest.raises(ValueError, match=r"Invalid `policy.type` value 'sac'.*\[xvla\]"):
+        validate_recipe_runtime_preflight(cfg)
+
+
+def test_runtime_preflight_keeps_default_path_when_recipe_unset():
+    cfg = TrainRLServerPipelineConfig(policy=SACConfig())
+
+    context = validate_recipe_runtime_preflight(cfg)
+
+    assert context.recipe is None
+    assert context.policy_type == "sac"
