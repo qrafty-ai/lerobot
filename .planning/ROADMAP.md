@@ -48,9 +48,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 02-01: Implement PI-RL learner branch and update scheduling hooks.
-- [ ] 02-02: Integrate PI-RL loss/optimizer calls through flow-matching policy-forward contracts (XVLA first).
-- [ ] 02-03: Validate checkpoint/resume and run LIBERO training smoke flow for PI-RL path.
+- [ ] 02-01-PLAN.md — Implement recipe-gated learner PI-RL branch and scheduling hooks on existing replay flow.
+- [ ] 02-02-PLAN.md — Integrate XVLA PI-RL forward contract and learner optimizer path without transport/schema changes.
+- [ ] 02-03-PLAN.md — Finalize checkpoint/resume continuity and run `libero_10` two-terminal smoke gate.
 
 Training commands (Phase 2 gate):
 
