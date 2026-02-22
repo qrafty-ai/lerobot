@@ -10,7 +10,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Recipe and Configuration
 
 - [x] **RCP-01**: User can enable PI-RL as a training recipe independently of policy type selection.
-- [ ] **RCP-02**: User can run PI-RL recipe with flow-matching policies, with XVLA as the first validated target.
+- [x] **RCP-02**: User can run PI-RL recipe with flow-matching policies, with XVLA as the first validated target.
 - [x] **RCP-03**: User can configure PI-RL variant behavior (Flow-Noise vs Flow-SDE style options) through structured recipe config fields.
 
 ### Learner Training Flow
@@ -62,7 +62,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | RCP-01 | Phase 1 | Complete |
-| RCP-02 | Phase 1 | Pending |
+| RCP-02 | Phase 1 | Complete |
 | RCP-03 | Phase 1 | Complete |
 | LRN-01 | Phase 2 | Pending |
 | LRN-02 | Phase 2 | Pending |

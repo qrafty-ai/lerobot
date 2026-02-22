@@ -10,16 +10,16 @@ See: .planning/PROJECT.md (updated 2026-02-21)
 ## Current Position
 
 Phase: 1 of 4 (PI-RL Recipe Foundation)
-Plan: 1 of 3
+Plan: 2 of 3
 Status: In progress
-Last activity: 2026-02-22 - Completed 01-01 PI-RL recipe config and validation foundation
+Last activity: 2026-02-22 - Completed 01-02 runtime recipe dispatch and actor/learner config sync guards
 
-Progress: [█░░░░░░░░░] 9%
+Progress: [██░░░░░░░░] 18%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 0
+- Total plans completed: 1
 - Average duration: 2 min
 - Total execution time: 0.03 hours
 
@@ -27,15 +27,16 @@ Progress: [█░░░░░░░░░] 9%
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 1 | 1/3 | 2 min | 2 min |
+| 1 | 2/3 | 4 min | 2 min |
 | 2 | 0/3 | - | - |
 | 3 | 0/3 | - | - |
 | 4 | 0/2 | - | - |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (2 min)
+- Last 5 plans: 01-01 (2 min), 01-02 (2 min)
 - Trend: Stable
 | Phase 01 P01 | 2 min | 2 tasks | 4 files |
+| Phase 01 P02 | 2 min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -49,6 +50,8 @@ Recent decisions affecting current work:
 - [Update]: Use LIBERO benchmark as default simulation-first validation path for PI-RL milestones.
 - [Phase 01-01]: Use strict canonical pi-rl recipe at parser preflight. — Prevents ambiguous spellings and gives deterministic correction hints before runtime startup.
 - [Phase 01-01]: Require PI-RL variant and variant-specific knobs only when recipe=pi-rl. — Preserves default behavior when recipe is unset while enforcing strict PI-RL safety gates.
+- [Phase 01-02]: Centralized PI-RL runtime preflight context for actor/learner/train — Keeps recipe eligibility and startup summary deterministic from one validation source.
+- [Phase 01-02]: Actor validates learner config path/hash from streamed metadata before loading params — Hard-fails mismatched recipe sources without protobuf changes.
 
 ### Pending Todos
 
@@ -60,6 +63,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-22 02:29 UTC
-Stopped at: Completed 01-01-PLAN.md
-Resume file: .planning/phases/01-pi-rl-recipe-foundation/01-02-PLAN.md
+Last session: 2026-02-22 02:44 UTC
+Stopped at: Completed 01-02-PLAN.md
+Resume file: .planning/phases/01-pi-rl-recipe-foundation/01-03-PLAN.md

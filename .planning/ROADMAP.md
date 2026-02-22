@@ -33,7 +33,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 Plans:
 - [x] 01-01: Define recipe-level PI-RL config knobs and selection path in training config.
-- [ ] 01-02: Wire recipe dispatch logic so it applies to flow-matching policies without changing policy taxonomy.
+- [x] 01-02: Wire recipe dispatch logic so it applies to flow-matching policies without changing policy taxonomy.
 - [ ] 01-03: Add focused tests for recipe selection and XVLA compatibility.
 
 ### Phase 2: Learner PI-RL Training Path
@@ -143,7 +143,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. PI-RL Recipe Foundation | 1/3 | In Progress | - |
+| 1. PI-RL Recipe Foundation | 2/3 | In Progress | - |
 | 2. Learner PI-RL Training Path | 0/3 | Not started | - |
 | 3. Runtime Compatibility and Verification | 0/3 | Not started | - |
 | 4. Recipes and Operational Docs | 0/2 | Not started | - |
