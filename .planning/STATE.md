@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-21)
 
 **Core value:** Enable reliable online RL fine-tuning of flow-based VLA policies in LeRobot while preserving existing RL stability and operability.
-**Current focus:** Phase 1 - PI-RL Recipe Foundation
+**Current focus:** Phase 2 - Learner PI-RL Training Path
 
 ## Current Position
 
-Phase: 1 of 4 (PI-RL Recipe Foundation)
-Plan: 3 of 3
-Status: Complete
-Last activity: 2026-02-22 - Completed 01-03 focused PI-RL recipe/XVLA compatibility test coverage
+Phase: 2 of 4 (Learner PI-RL Training Path)
+Plan: 0 of 3
+Status: Context gathered, ready for planning
+Last activity: 2026-02-22 - Captured 02-CONTEXT decisions for smoke-first run profile and learner/actor launch path
 
-Progress: [███░░░░░░░] 27%
+Progress: [████░░░░░░] 32%
 
 ## Performance Metrics
 
@@ -55,6 +55,7 @@ Recent decisions affecting current work:
 - [Phase 01-02]: Actor validates learner config path/hash from streamed metadata before loading params — Hard-fails mismatched recipe sources without protobuf changes.
 - [Phase 01-03]: Represent RCP-01/02/03 with explicit matrix tests in config and RL modules — Keeps roadmap acceptance gates executable and directly traceable to requirement IDs.
 - [Phase 01-03]: Verify PI-RL startup preflight via hardware-independent unit tests — Covers actor/learner guard behavior deterministically in CI without robot runtime dependencies.
+- [Phase 02 Context]: Default to smoke-first `libero_10` training with explicit two-terminal learner/actor launch and hard-fail checkpoint metadata mismatch handling.
 
 ### Pending Todos
 
@@ -66,6 +67,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-22 02:53 UTC
-Stopped at: Completed 01-03-PLAN.md
-Resume file: None
+Last session: 2026-02-22 03:24 UTC
+Stopped at: Phase 2 context gathered
+Resume file: .planning/phases/02-learner-pi-rl-training-path/02-CONTEXT.md
