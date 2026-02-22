@@ -25,6 +25,7 @@ from typing import Any, TypeVar, cast
 
 import draccus
 
+from lerobot.configs.types import PI_RL_RECIPE_VALUE
 from lerobot.utils.utils import has_method
 
 F = TypeVar("F", bound=Callable[..., object])
@@ -63,6 +64,25 @@ def parse_arg(arg_name: str, args: Sequence[str] | None = None) -> str | None:
         if arg.startswith(prefix):
             return arg[len(prefix) :]
     return None
+
+
+def validate_recipe_cli_args(args: Sequence[str]) -> None:
+    recipe = parse_arg("recipe", args)
+    if recipe is None:
+        return
+
+    if recipe == PI_RL_RECIPE_VALUE:
+        return
+
+    normalized = recipe.strip().lower().replace("_", "-")
+    if normalized == PI_RL_RECIPE_VALUE:
+        raise ValueError(
+            f"Invalid `recipe` value {recipe!r}. Use canonical `pi-rl` (example: `--recipe=pi-rl`)."
+        )
+
+    raise ValueError(
+        f"Invalid `recipe` value {recipe!r}. Expected `pi-rl` or omit `recipe` for default behavior."
+    )
 
 
 def parse_plugin_args(plugin_arg_suffix: str, args: Sequence[str]) -> dict[str, str]:
@@ -221,6 +241,7 @@ def wrap(config_path: Path | None = None) -> Callable[[F], F]:
                         # add the relevant CLI arg to the error message
                         raise PluginLoadError(f"{e}\nFailed plugin CLI Arg: {plugin_cli_arg}") from e
                     cli_args = filter_arg(plugin_cli_arg, cli_args)
+                validate_recipe_cli_args(cli_args)
                 config_path_cli = parse_arg("config_path", cli_args)
                 if has_method(argtype, "__get_path_fields__"):
                     path_fields = argtype.__get_path_fields__()
