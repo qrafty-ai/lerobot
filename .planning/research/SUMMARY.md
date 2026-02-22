@@ -41,6 +41,7 @@ inside recipe-level learner branching and flow-matching policy-compatible adapte
 - XVLA-based validation path for first supported flow-matching policy.
 - Learner PI-RL optimization branch and actor compatibility.
 - Replay-compatible online training flow and targeted tests.
+- LIBERO-first validation protocol with single-suite + multi-suite commands and reportable per-suite metrics.
 
 **Should have (competitive):**
 - Flow-Noise/Flow-SDE variant toggles through config.
@@ -84,7 +85,7 @@ Based on research, suggested phase structure:
 
 ### Phase 3: Runtime Validation and Stability
 **Rationale:** Prevents regressions and ensures operational quality.
-**Delivers:** unit/integration tests, SAC compatibility checks, actor sync verification.
+**Delivers:** unit/integration tests, SAC compatibility checks, actor sync verification, and LIBERO benchmark reports.
 **Addresses:** branch/regression and sync risks.
 
 ### Phase 4: Docs, Recipes, and Hybrid Controls
@@ -128,6 +129,7 @@ Phases with standard patterns (skip research-phase):
 - arXiv `2510.25889` and associated method description.
 - RLinf repository module mapping and runner/algorithm references.
 - LeRobot local architecture files under `src/lerobot/rl`, `src/lerobot/policies`, and `src/lerobot/configs`.
+- LeRobot LIBERO benchmark guidance in `docs/source/libero.mdx`.
 
 ### Secondary (MEDIUM confidence)
 - Private PI-RL code summary in `qrafty-ai/research`.

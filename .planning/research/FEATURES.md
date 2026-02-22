@@ -16,6 +16,7 @@ Features users assume exist. Missing these = PI-RL support is not practically us
 | Learner-side PI-RL optimization path | New method must train end-to-end in current actor/learner flow | HIGH | Current learner loop is SAC-centric |
 | Actor inference compatibility | Actor process must keep receiving usable policy params | MEDIUM | Must preserve `.actor` parameter streaming contract |
 | Replay-buffer-compatible data path | Must reuse current transition stream for MVP | MEDIUM | Avoid proto/schema redesign in first milestone |
+| LIBERO benchmark validation harness | Real-robot testing is hard; simulation-first verification must be repeatable | MEDIUM | Require single-suite + multi-suite `lerobot-eval` protocol |
 | Test coverage for recipe/runtime path | Regression safety against SAC and transport flow | MEDIUM | Add XVLA + PI-RL, learner branch, and transport/queue checks |
 
 ### Differentiators (Competitive Advantage)
@@ -46,6 +47,8 @@ PI-RL training loop support
 Hybrid online+offline mode ──requires──> stable online-only PI-RL path
 
 Benchmark recipes ──enhances──> validated PI-RL training/eval flow
+
+LIBERO protocol definition ──requires──> reproducible setup (`.[libero]`, `MUJOCO_GL=egl`)
 ```
 
 ### Dependency Notes
@@ -53,6 +56,7 @@ Benchmark recipes ──enhances──> validated PI-RL training/eval flow
 - **PI-RL training loop requires recipe routing:** learner must dispatch by recipe mode while preserving policy identity.
 - **Hybrid mode depends on online-first stability:** blending offline data is safer after online behavior is validated.
 - **Benchmark recipes depend on validated core flow:** otherwise failures are hard to localize.
+- **LIBERO protocol depends on reproducible environment setup:** missing extras/render backend makes eval flaky.
 
 ## MVP Definition
 
@@ -62,6 +66,7 @@ Benchmark recipes ──enhances──> validated PI-RL training/eval flow
 - [ ] Learner PI-RL branch with online replay loop compatibility — makes method trainable.
 - [ ] Actor parameter sync + inference path preserved — keeps distributed runtime working.
 - [ ] Unit/integration tests for new path — protects regressions.
+- [ ] LIBERO validation matrix (single-suite + multi-suite) with per-suite metrics report.
 - [ ] Basic docs/config recipe for running PI-RL path — enables team adoption.
 
 ### Add After Validation (v1.x)

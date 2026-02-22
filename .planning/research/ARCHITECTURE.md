@@ -59,7 +59,7 @@ src/
 ### Structure Rationale
 
 - **recipe layer in `rl/learner.py` + `configs/train.py`** keeps PI-RL orchestration explicit and policy-agnostic.
-- **XVLA-first validation** provides a concrete flow-matching integration target before broad rollout.
+- **XVLA-first validation on LIBERO** provides a concrete simulation-first integration target before broad rollout.
 - **minimal policy-factory changes** avoid misclassifying PI-RL as a standalone policy type.
 
 ## Architectural Patterns
@@ -110,6 +110,7 @@ Policy actor state (actor process)
 
 1. **Online loop:** actor collects transitions continuously; learner updates policy from replay.
 2. **Hybrid loop (optional):** learner mixes online buffer and offline dataset-derived buffer.
+3. **Simulation validation loop:** run LIBERO single-suite smoke then multi-suite matrix and log per-suite success rates.
 
 ## Scaling Considerations
 
@@ -146,6 +147,7 @@ Policy actor state (actor process)
 |---------|---------------------|-------|
 | Weights & Biases | Existing learner logging utility | Add PI-RL metrics incrementally |
 | Hugging Face Hub (optional) | Existing model/config workflows | Keep compatibility with current save/load paths |
+| LIBERO benchmark env | `lerobot-eval --env.type=libero` | Primary validation surface before real-robot testing |
 
 ### Internal Boundaries
 
@@ -160,6 +162,7 @@ Policy actor state (actor process)
 - LeRobot RL runtime and policy architecture files
 - RLinf module map and runner/algorithm structure
 - PI-RL paper and summary documents
+- LIBERO guidance in `docs/source/libero.mdx`
 
 ---
 *Architecture research for: LeRobot PI-RL extension*

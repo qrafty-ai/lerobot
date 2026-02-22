@@ -22,6 +22,7 @@
 | NumPy | project-managed | Numeric preprocessing and transition shaping | Environment interaction and state/action transforms |
 | Weights & Biases | project-managed | Metrics logging for online training | Enable in long PI-RL runs for policy/optimization diagnostics |
 | OpenCV (optional) | project-managed | Camera/observation handling in RL runtime paths | Required only in camera-enabled rollouts |
+| LIBERO extras (`.[libero]`) | project-managed | Simulation benchmark harness for validation | Required for PI-RL phase-gate evaluation without real robot |
 
 ### Development Tools
 
@@ -39,6 +40,12 @@ pip install -e .
 
 # Optional extras often needed for advanced RL/vla flows
 pip install -e ".[hilserl]"
+
+# LIBERO simulation benchmark extras
+pip install -e ".[libero]"
+
+# Headless simulation rendering backend
+export MUJOCO_GL=egl
 
 # Development checks
 pre-commit run --all-files
@@ -59,7 +66,7 @@ pytest -sv tests/rl
 |-------|-----|-------------|
 | Hard-forking RLinf into LeRobot | High maintenance burden and architectural drift | Port only PI-RL recipe primitives needed by LeRobot |
 | Transport/proto redesign in MVP phase | Adds risk without proving PI-RL value | Keep existing service contract and add algorithm-specific payload logic inside learner |
-| Benchmark-chasing as first deliverable | Expensive and not necessary to validate integration | First validate functional training recipe and safety/regression coverage |
+| Real-robot-first validation for PI-RL | Hard to iterate and costly before algorithm stabilization | Use LIBERO benchmark suites as required first validation surface |
 
 ## Stack Patterns by Variant
 
@@ -84,6 +91,7 @@ pytest -sv tests/rl
 - RLinf repository (`RLinf/RLinf`) — reference implementation structure and algorithm modules.
 - Private summary: `qrafty-ai/research/paper_codes/2510.25889_pi_rl_summary.md`.
 - Local codebase inspection under `src/lerobot/rl`, `src/lerobot/policies`, and `src/lerobot/configs`.
+- LIBERO benchmark guidance in `docs/source/libero.mdx`.
 
 ---
 *Stack research for: LeRobot PI-RL extension*

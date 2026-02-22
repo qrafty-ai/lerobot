@@ -4,7 +4,7 @@
 
 This roadmap delivers PI-RL support through a low-risk sequence: first wire recipe-level configuration
 and XVLA baseline compatibility, then add learner recipe behavior, then validate distributed runtime
-compatibility and regressions, and finally package runnable docs/config recipes for adoption.
+compatibility and regressions using LIBERO benchmark suites, and finally package runnable docs/config recipes for adoption.
 
 ## Phases
 
@@ -52,19 +52,49 @@ Plans:
 - [ ] 02-03: Validate checkpoint/resume flow for PI-RL path.
 
 ### Phase 3: Runtime Compatibility and Verification
-**Goal**: Validate distributed runtime correctness and prevent regressions on SAC and transport behavior.
+**Goal**: Validate distributed runtime correctness and prevent regressions on SAC and transport behavior with LIBERO-first simulation testing.
 **Depends on**: Phase 2
-**Requirements**: [ACT-01, ACT-02, ACT-03, VAL-01, VAL-02]
+**Requirements**: [ACT-01, ACT-02, ACT-03, VAL-01, VAL-02, VAL-03, VAL-04, VAL-05]
 **Success Criteria** (what must be TRUE):
   1. Actor receives and applies learner-updated parameters correctly in XVLA + PI-RL mode.
   2. Existing gRPC/queue transition flow remains unchanged and functional.
-  3. SAC tests and PI-RL regression checks pass together.
+  3. LIBERO single-suite smoke eval passes for XVLA + PI-RL outputs (at least `libero_object`).
+  4. LIBERO multi-suite eval runs for `libero_spatial,libero_object,libero_goal,libero_10` with recorded per-suite metrics.
+  5. Self-contained LIBERO setup is codified (`.[libero]` install + `MUJOCO_GL=egl`).
+  6. SAC tests and PI-RL regression checks pass together.
 **Plans**: 3 plans
 
 Plans:
 - [ ] 03-01: Add actor/learner integration tests for PI-RL parameter and transition streaming.
 - [ ] 03-02: Add learner-branch and policy-level regression tests.
-- [ ] 03-03: Run cross-path validation (PI-RL and SAC) and harden runtime edge cases.
+- [ ] 03-03: Run LIBERO validation matrix (single-suite + multi-suite) plus SAC cross-path checks and harden runtime edge cases.
+
+Validation matrix commands (Phase 3 gate):
+
+```bash
+pip install -e ".[libero]"
+export MUJOCO_GL=egl
+
+# smoke suite
+lerobot-eval \
+  --policy.path="<pi-rl-output-policy>" \
+  --env.type=libero \
+  --env.task=libero_object \
+  --eval.batch_size=1 \
+  --eval.n_episodes=3
+
+# multi-suite benchmark
+lerobot-eval \
+  --policy.path="<pi-rl-output-policy>" \
+  --env.type=libero \
+  --env.task=libero_spatial,libero_object,libero_goal,libero_10 \
+  --eval.batch_size=1 \
+  --eval.n_episodes=10 \
+  --env.max_parallel_tasks=1
+```
+
+Phase 3 deliverable artifact:
+- Per-suite success rates (Spatial/Object/Goal/Long) + average in a reproducible report.
 
 ### Phase 4: Recipes and Operational Docs
 **Goal**: Ship runnable PI-RL usage docs and configs for practical team adoption.
@@ -72,8 +102,9 @@ Plans:
 **Requirements**: [DOC-01]
 **Success Criteria** (what must be TRUE):
   1. Users can follow documented commands/configs to launch PI-RL learner+actor flow.
-  2. Docs clearly explain what changed, what stayed stable, and known limits.
-  3. Example recipe artifacts align with tested runtime behavior.
+  2. Docs include self-contained LIBERO test commands (install/setup/rendering/single-suite/multi-suite).
+  3. Docs clearly explain what changed, what stayed stable, and known limits.
+  4. Example recipe artifacts align with tested runtime behavior and recorded LIBERO metrics.
 **Plans**: 2 plans
 
 Plans:

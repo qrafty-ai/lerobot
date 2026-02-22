@@ -12,7 +12,7 @@ See: .planning/PROJECT.md (updated 2026-02-21)
 Phase: 1 of 4 (PI-RL Recipe Foundation)
 Plan: 0 of 3 in current phase
 Status: Ready to plan
-Last activity: 2026-02-21 - Initialized project docs, research, requirements, and roadmap artifacts
+Last activity: 2026-02-21 - Updated plan with self-contained LIBERO-first validation gates and commands
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -45,6 +45,7 @@ Recent decisions affecting current work:
 
 - [Init]: Treat PI-RL as online RL extension path.
 - [Init]: Integrate incrementally in LeRobot runtime instead of full RLinf runtime replacement.
+- [Update]: Use LIBERO benchmark as default simulation-first validation path for PI-RL milestones.
 
 ### Pending Todos
 
@@ -52,7 +53,7 @@ None yet.
 
 ### Blockers/Concerns
 
-- Need phase-level implementation planning for PI-RL recipe hooks over flow-matching policy interfaces (XVLA first).
+- Need explicit acceptance thresholds for LIBERO per-suite/average metrics for Phase 3 sign-off.
 
 ## Session Continuity
 

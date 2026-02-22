@@ -19,6 +19,7 @@
    (`state`, `action`, `reward`, `next_state`, `done`, `truncated`, optional metadata).
 3. **Config contract:** recipe mode + variant knobs (Flow-Noise / Flow-SDE style behavior),
    independent from policy type selection.
+4. **Benchmark contract:** simulation-first validation runs through LIBERO benchmark suites before real-robot testing.
 
 ## Core Recipe Logic (Reference Flow)
 
@@ -71,11 +72,52 @@ for each interaction cycle:
 
 - XVLA + PI-RL recipe mode runs end-to-end without transport/schema changes.
 - Learner recipe branch updates and publishes parameters successfully.
+- LIBERO single-suite smoke evaluation works (`libero_object`).
+- LIBERO multi-suite matrix evaluation works (`libero_spatial,libero_object,libero_goal,libero_10`).
 - SAC path remains functional and non-regressed.
 - Checkpoint/resume and logging work for PI-RL runs.
+
+## LIBERO Validation Protocol (Self-Contained)
+
+1. Install LIBERO extras:
+
+```bash
+pip install -e ".[libero]"
+```
+
+2. For headless GPU servers, set MuJoCo rendering backend:
+
+```bash
+export MUJOCO_GL=egl
+```
+
+3. Run single-suite smoke evaluation on PI-RL output policy:
+
+```bash
+lerobot-eval \
+  --policy.path="<pi-rl-output-policy>" \
+  --env.type=libero \
+  --env.task=libero_object \
+  --eval.batch_size=1 \
+  --eval.n_episodes=3
+```
+
+4. Run multi-suite matrix evaluation:
+
+```bash
+lerobot-eval \
+  --policy.path="<pi-rl-output-policy>" \
+  --env.type=libero \
+  --env.task=libero_spatial,libero_object,libero_goal,libero_10 \
+  --eval.batch_size=1 \
+  --eval.n_episodes=10
+```
+
+5. Record per-suite success metrics and average; include run config (episodes, batch size, policy path).
 
 ## Sources
 
 - arXiv: `2510.25889` (PI-RL framing and variants).
 - RLinf reference implementation structure (runner/actor/loss pipelines).
 - Internal planning artifacts in `.planning/research/` and LeRobot RL codebase mapping.
+- LIBERO usage details from `docs/source/libero.mdx`.

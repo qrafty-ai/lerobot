@@ -29,6 +29,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [ ] **VAL-01**: User can rely on automated tests covering PI-RL recipe selection, learner branch behavior, and XVLA integration.
 - [ ] **VAL-02**: User can rely on integration checks for actor↔learner parameter/transition flow in XVLA + PI-RL mode.
+- [ ] **VAL-03**: User can run a LIBERO benchmark smoke evaluation (`libero_object`) for XVLA + PI-RL outputs via `lerobot-eval`.
+- [ ] **VAL-04**: User can run a LIBERO multi-suite evaluation (`libero_spatial,libero_object,libero_goal,libero_10`) and collect per-suite success metrics.
+- [ ] **VAL-05**: User can execute a self-contained LIBERO eval setup (`pip install -e ".[libero]"`, `MUJOCO_GL=egl`) and produce a reproducible metrics report.
 - [ ] **DOC-01**: User can follow a documented PI-RL training recipe (configs + command flow) and understand how to extend it to other flow-matching policies.
 
 ## v2 Requirements
@@ -68,11 +71,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ACT-03 | Phase 3 | Pending |
 | VAL-01 | Phase 3 | Pending |
 | VAL-02 | Phase 3 | Pending |
+| VAL-03 | Phase 3 | Pending |
+| VAL-04 | Phase 3 | Pending |
+| VAL-05 | Phase 3 | Pending |
 | DOC-01 | Phase 4 | Pending |
 
 **Coverage:**
-- v1 requirements: 12 total
-- Mapped to phases: 12
+- v1 requirements: 15 total
+- Mapped to phases: 15
 - Unmapped: 0
 
 ---
