@@ -143,7 +143,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. PI-RL Recipe Foundation | 3/3 | Complete | 2026-02-22 |
+| 1. PI-RL Recipe Foundation | 3/3 | Complete    | 2026-02-22 |
 | 2. Learner PI-RL Training Path | 0/3 | Not started | - |
 | 3. Runtime Compatibility and Verification | 0/3 | Not started | - |
 | 4. Recipes and Operational Docs | 0/2 | Not started | - |
