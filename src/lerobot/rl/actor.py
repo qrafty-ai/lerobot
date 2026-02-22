@@ -59,7 +59,14 @@ from torch.multiprocessing import Event, Queue
 
 from lerobot.cameras import opencv  # noqa: F401
 from lerobot.configs import parser
-from lerobot.configs.train import TrainRLServerPipelineConfig
+from lerobot.configs.train import (
+    PI_RL_CONFIG_HASH_METADATA_KEY,
+    PI_RL_CONFIG_PATH_METADATA_KEY,
+    TrainRLServerPipelineConfig,
+    build_recipe_preflight_context,
+    log_recipe_preflight_summary,
+    validate_recipe_runtime_preflight,
+)
 from lerobot.policies.factory import make_policy
 from lerobot.policies.sac.modeling_sac import SACPolicy
 from lerobot.processor import TransitionKey
@@ -103,6 +110,8 @@ from .gym_manipulator import (
 @parser.wrap()
 def actor_cli(cfg: TrainRLServerPipelineConfig):
     cfg.validate()
+    preflight_context = validate_recipe_runtime_preflight(cfg)
+
     display_pid = False
     if not use_threads(cfg):
         import torch.multiprocessing as mp
@@ -118,6 +127,7 @@ def actor_cli(cfg: TrainRLServerPipelineConfig):
     # Initialize logging with explicit log file
     init_logging(log_file=log_file, display_pid=display_pid)
     logging.info(f"Actor logging initialized, writing to {log_file}")
+    log_recipe_preflight_summary(preflight_context, role="ACTOR")
 
     is_threaded = use_threads(cfg)
     shutdown_event = ProcessSignalHandler(is_threaded, display_pid=display_pid).shutdown_event
@@ -275,6 +285,7 @@ def act_with_policy(
     episode_total_steps = 0
 
     policy_timer = TimerManager("Policy inference", log=False)
+    config_sync_state = {"validated": False}
 
     for interaction_step in range(cfg.policy.online_steps):
         start_time = time.perf_counter()
@@ -351,7 +362,13 @@ def act_with_policy(
         if done or truncated:
             logging.info(f"[ACTOR] Global step {interaction_step}: Episode reward: {sum_reward_episode}")
 
-            update_policy_parameters(policy=policy, parameters_queue=parameters_queue, device=device)
+            update_policy_parameters(
+                policy=policy,
+                parameters_queue=parameters_queue,
+                device=device,
+                cfg=cfg,
+                config_sync_state=config_sync_state,
+            )
 
             if len(list_transition_to_send_to_learner) > 0:
                 push_transitions_to_transport_queue(
@@ -649,11 +666,57 @@ def interactions_stream(
 #  Policy functions
 
 
-def update_policy_parameters(policy: SACPolicy, parameters_queue: Queue, device):
+def _decode_config_metadata_from_state_dict(
+    state_dicts: dict[str, torch.Tensor | dict[str, torch.Tensor]],
+) -> tuple[str | None, str | None]:
+    config_path_tensor = state_dicts.get(PI_RL_CONFIG_PATH_METADATA_KEY)
+    config_hash_tensor = state_dicts.get(PI_RL_CONFIG_HASH_METADATA_KEY)
+
+    if not isinstance(config_path_tensor, torch.Tensor) or not isinstance(config_hash_tensor, torch.Tensor):
+        return None, None
+
+    if config_path_tensor.dtype != torch.uint8 or config_hash_tensor.dtype != torch.uint8:
+        raise ValueError("Learner config metadata tensors must use torch.uint8 encoding.")
+
+    config_path = bytes(config_path_tensor.tolist()).decode("utf-8")
+    config_hash = bytes(config_hash_tensor.tolist()).decode("utf-8")
+    return config_path, config_hash
+
+
+def update_policy_parameters(
+    policy: SACPolicy,
+    parameters_queue: Queue,
+    device,
+    cfg: TrainRLServerPipelineConfig,
+    config_sync_state: dict[str, bool] | None = None,
+):
     bytes_state_dict = get_last_item_from_queue(parameters_queue, block=False)
     if bytes_state_dict is not None:
         logging.info("[ACTOR] Load new parameters from Learner.")
         state_dicts = bytes_to_state_dict(bytes_state_dict)
+
+        actor_preflight = build_recipe_preflight_context(cfg)
+        learner_config_path, learner_config_hash = _decode_config_metadata_from_state_dict(state_dicts)
+        first_sync_required = config_sync_state is None or not config_sync_state.get("validated", False)
+        if first_sync_required:
+            if learner_config_path is None or learner_config_hash is None:
+                raise RuntimeError(
+                    "Actor/Learner configuration metadata missing from learner payload. "
+                    f"actor_config_path={actor_preflight.config_path}, actor_config_hash={actor_preflight.config_hash}"
+                )
+
+            if (
+                learner_config_path != actor_preflight.config_path
+                or learner_config_hash != actor_preflight.config_hash
+            ):
+                raise RuntimeError(
+                    "Actor/Learner config mismatch: "
+                    f"actor_path={actor_preflight.config_path}, learner_path={learner_config_path}, "
+                    f"actor_hash={actor_preflight.config_hash}, learner_hash={learner_config_hash}"
+                )
+
+            if config_sync_state is not None:
+                config_sync_state["validated"] = True
 
         # TODO: check encoder parameter synchronization possible issues:
         # 1. When shared_encoder=True, we're loading stale encoder params from actor's state_dict

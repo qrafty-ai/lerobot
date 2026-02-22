@@ -61,7 +61,15 @@ from torch.optim.optimizer import Optimizer
 
 from lerobot.cameras import opencv  # noqa: F401
 from lerobot.configs import parser
-from lerobot.configs.train import TrainRLServerPipelineConfig
+from lerobot.configs.train import (
+    PI_RL_CONFIG_HASH_METADATA_KEY,
+    PI_RL_CONFIG_PATH_METADATA_KEY,
+    RecipePreflightContext,
+    TrainRLServerPipelineConfig,
+    build_recipe_preflight_context,
+    log_recipe_preflight_summary,
+    validate_recipe_runtime_preflight,
+)
 from lerobot.datasets.factory import make_dataset
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.policies.factory import make_policy
@@ -105,6 +113,9 @@ from .learner_service import MAX_WORKERS, SHUTDOWN_TIMEOUT, LearnerService
 
 @parser.wrap()
 def train_cli(cfg: TrainRLServerPipelineConfig):
+    cfg.validate()
+    preflight_context = validate_recipe_runtime_preflight(cfg)
+
     if not use_threads(cfg):
         import torch.multiprocessing as mp
 
@@ -114,12 +125,17 @@ def train_cli(cfg: TrainRLServerPipelineConfig):
     train(
         cfg,
         job_name=cfg.job_name,
+        preflight_context=preflight_context,
     )
 
     logging.info("[LEARNER] train_cli finished")
 
 
-def train(cfg: TrainRLServerPipelineConfig, job_name: str | None = None):
+def train(
+    cfg: TrainRLServerPipelineConfig,
+    job_name: str | None = None,
+    preflight_context: RecipePreflightContext | None = None,
+):
     """
     Main training function that initializes and runs the training process.
 
@@ -129,6 +145,8 @@ def train(cfg: TrainRLServerPipelineConfig, job_name: str | None = None):
     """
 
     cfg.validate()
+    if preflight_context is None:
+        preflight_context = validate_recipe_runtime_preflight(cfg)
 
     if job_name is None:
         job_name = cfg.job_name
@@ -148,6 +166,7 @@ def train(cfg: TrainRLServerPipelineConfig, job_name: str | None = None):
     # Initialize logging with explicit log file
     init_logging(log_file=log_file, display_pid=display_pid)
     logging.info(f"Learner logging initialized, writing to {log_file}")
+    log_recipe_preflight_summary(preflight_context, role="LEARNER")
     logging.info(pformat(cfg.to_dict()))
 
     # Setup WandB logging if enabled
@@ -315,7 +334,14 @@ def add_actor_information_and_train(
 
     policy.train()
 
-    push_actor_policy_to_queue(parameters_queue=parameters_queue, policy=policy)
+    learner_preflight = build_recipe_preflight_context(cfg)
+    push_actor_policy_to_queue(
+        parameters_queue=parameters_queue,
+        policy=policy,
+        include_config_metadata=True,
+        config_path=learner_preflight.config_path,
+        config_hash=learner_preflight.config_hash,
+    )
 
     last_time_policy_pushed = time.time()
 
@@ -1091,7 +1117,13 @@ def check_nan_in_transition(
     return nan_detected
 
 
-def push_actor_policy_to_queue(parameters_queue: Queue, policy: nn.Module):
+def push_actor_policy_to_queue(
+    parameters_queue: Queue,
+    policy: nn.Module,
+    include_config_metadata: bool = False,
+    config_path: str | None = None,
+    config_hash: str | None = None,
+):
     logging.debug("[LEARNER] Pushing actor policy to the queue")
 
     # Create a dictionary to hold all the state dicts
@@ -1103,6 +1135,16 @@ def push_actor_policy_to_queue(parameters_queue: Queue, policy: nn.Module):
             policy.discrete_critic.state_dict(), device="cpu"
         )
         logging.debug("[LEARNER] Including discrete critic in state dict push")
+
+    if include_config_metadata:
+        if config_path is None or config_hash is None:
+            raise ValueError("Config metadata is required when include_config_metadata=True")
+        state_dicts[PI_RL_CONFIG_PATH_METADATA_KEY] = torch.tensor(
+            list(config_path.encode("utf-8")), dtype=torch.uint8
+        )
+        state_dicts[PI_RL_CONFIG_HASH_METADATA_KEY] = torch.tensor(
+            list(config_hash.encode("utf-8")), dtype=torch.uint8
+        )
 
     state_bytes = state_to_bytes(state_dicts)
     parameters_queue.put(state_bytes)
