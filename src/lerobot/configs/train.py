@@ -26,11 +26,37 @@ from lerobot import envs
 from lerobot.configs import parser
 from lerobot.configs.default import DatasetConfig, EvalConfig, PeftConfig, WandBConfig
 from lerobot.configs.policies import PreTrainedConfig
+from lerobot.configs.types import (
+    PI_RL_RECIPE_ALLOWED_VARIANTS,
+    PI_RL_RECIPE_VALUE,
+    PIRLVariantType,
+    RecipeType,
+)
 from lerobot.optim import OptimizerConfig
 from lerobot.optim.schedulers import LRSchedulerConfig
 from lerobot.utils.hub import HubMixin
 
 TRAIN_CONFIG_NAME = "train_config.json"
+
+
+@dataclass
+class PIRLFlowNoiseConfig:
+    std: float | None = None
+
+
+@dataclass
+class PIRLFlowSDEConfig:
+    sigma_min: float | None = None
+    sigma_max: float | None = None
+
+
+@dataclass
+class PIRLConfig:
+    variant: str | PIRLVariantType | None = None
+    temperature: float | None = None
+    target_noise_scale: float | None = None
+    flow_noise: PIRLFlowNoiseConfig = field(default_factory=PIRLFlowNoiseConfig)
+    flow_sde: PIRLFlowSDEConfig = field(default_factory=PIRLFlowSDEConfig)
 
 
 @dataclass
@@ -66,6 +92,8 @@ class TrainPipelineConfig(HubMixin):
     eval: EvalConfig = field(default_factory=EvalConfig)
     wandb: WandBConfig = field(default_factory=WandBConfig)
     peft: PeftConfig | None = None
+    recipe: str | RecipeType | None = None
+    pirl: PIRLConfig = field(default_factory=PIRLConfig)
 
     # RA-BC (Reward-Aligned Behavior Cloning) parameters
     use_rabc: bool = False  # Enable reward-weighted training
@@ -78,14 +106,83 @@ class TrainPipelineConfig(HubMixin):
     rename_map: dict[str, str] = field(default_factory=dict)
     checkpoint_path: Path | None = field(init=False, default=None)
 
+    def _format_validation_error(self, field_path: str, bad_value: Any, fix_hint: str) -> ValueError:
+        return ValueError(f"Invalid `{field_path}` value {bad_value!r}. {fix_hint}")
+
+    def _to_string_or_none(self, value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value
+        if isinstance(value, (RecipeType, PIRLVariantType)):
+            return value.value
+        return str(value)
+
+    def _validate_positive_float(self, field_path: str, value: float | None) -> None:
+        if value is None:
+            raise self._format_validation_error(field_path, value, f"Set `--{field_path}=<positive float>`.")
+        if value <= 0:
+            raise self._format_validation_error(
+                field_path,
+                value,
+                f"Expected a positive value for `{field_path}`. Set `--{field_path}=<positive float>`.",
+            )
+
+    def _validate_pi_rl_variant(self, variant: str) -> None:
+        if variant == PIRLVariantType.FLOW_NOISE.value:
+            self._validate_positive_float("pirl.flow_noise.std", self.pirl.flow_noise.std)
+            return
+
+        self._validate_positive_float("pirl.flow_sde.sigma_min", self.pirl.flow_sde.sigma_min)
+        self._validate_positive_float("pirl.flow_sde.sigma_max", self.pirl.flow_sde.sigma_max)
+        if self.pirl.flow_sde.sigma_max is not None and self.pirl.flow_sde.sigma_min is not None:
+            if self.pirl.flow_sde.sigma_max <= self.pirl.flow_sde.sigma_min:
+                raise self._format_validation_error(
+                    "pirl.flow_sde.sigma_max",
+                    self.pirl.flow_sde.sigma_max,
+                    "`pirl.flow_sde.sigma_max` must be greater than `pirl.flow_sde.sigma_min`.",
+                )
+
+    def _validate_recipe(self) -> None:
+        recipe_value = self._to_string_or_none(self.recipe)
+        if recipe_value is None:
+            return
+
+        if recipe_value != PI_RL_RECIPE_VALUE:
+            raise self._format_validation_error(
+                "recipe",
+                recipe_value,
+                "Use canonical `pi-rl` (example: `--recipe=pi-rl`) or omit `recipe` for default behavior.",
+            )
+
+        variant = self._to_string_or_none(self.pirl.variant)
+        if variant is None:
+            raise self._format_validation_error(
+                "pirl.variant",
+                variant,
+                "Set `--pirl.variant=flow-noise` or `--pirl.variant=flow-sde` when `recipe=pi-rl`.",
+            )
+        if variant not in PI_RL_RECIPE_ALLOWED_VARIANTS:
+            raise self._format_validation_error(
+                "pirl.variant",
+                variant,
+                "Expected one of ['flow-noise', 'flow-sde'].",
+            )
+
+        self._validate_positive_float("pirl.temperature", self.pirl.temperature)
+        self._validate_positive_float("pirl.target_noise_scale", self.pirl.target_noise_scale)
+        self._validate_pi_rl_variant(variant)
+
     def validate(self) -> None:
+        self._validate_recipe()
         # HACK: We parse again the cli args here to get the pretrained paths if there was some.
         policy_path = parser.get_path_arg("policy")
         if policy_path:
             # Only load the policy config
             cli_overrides = parser.get_cli_overrides("policy")
-            self.policy = PreTrainedConfig.from_pretrained(policy_path, cli_overrides=cli_overrides)
-            self.policy.pretrained_path = Path(policy_path)
+            loaded_policy = PreTrainedConfig.from_pretrained(policy_path, cli_overrides=cli_overrides)
+            loaded_policy.pretrained_path = Path(policy_path)
+            self.policy = loaded_policy
         elif self.resume:
             # The entire train config is already loaded, we just need to get the checkpoint dir
             config_path = parser.parse_arg("config_path")
@@ -109,6 +206,7 @@ class TrainPipelineConfig(HubMixin):
             raise ValueError(
                 "Policy is not configured. Please specify a pretrained policy with `--policy.path`."
             )
+        assert self.policy is not None
 
         if not self.job_name:
             if self.env is None:

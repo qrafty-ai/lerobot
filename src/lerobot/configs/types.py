@@ -50,3 +50,16 @@ class RTCAttentionSchedule(str, Enum):
     ONES = "ONES"
     LINEAR = "LINEAR"
     EXP = "EXP"
+
+
+class RecipeType(str, Enum):
+    PI_RL = "pi-rl"
+
+
+class PIRLVariantType(str, Enum):
+    FLOW_NOISE = "flow-noise"
+    FLOW_SDE = "flow-sde"
+
+
+PI_RL_RECIPE_VALUE = RecipeType.PI_RL.value
+PI_RL_RECIPE_ALLOWED_VARIANTS = {variant.value for variant in PIRLVariantType}
