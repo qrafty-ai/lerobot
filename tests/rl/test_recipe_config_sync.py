@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from typing import cast
+from typing import Any, cast
 
 import pytest
 import torch
@@ -82,23 +82,16 @@ def test_update_policy_parameters_fails_on_actor_learner_config_mismatch(cfg):
     learner_path = "/tmp/other/train_config.json"
     learner_hash = "deadbeef"
 
-    parameters_queue.put(
-        state_to_bytes(
-            {
-                "policy": policy.actor.state_dict(),
-                PI_RL_CONFIG_PATH_METADATA_KEY: torch.tensor(
-                    list(learner_path.encode("utf-8")), dtype=torch.uint8
-                ),
-                PI_RL_CONFIG_HASH_METADATA_KEY: torch.tensor(
-                    list(learner_hash.encode("utf-8")), dtype=torch.uint8
-                ),
-            }
-        )
-    )
+    state_dict_payload: dict[str, Any] = {
+        "policy": policy.actor.state_dict(),
+        PI_RL_CONFIG_PATH_METADATA_KEY: torch.tensor(list(learner_path.encode("utf-8")), dtype=torch.uint8),
+        PI_RL_CONFIG_HASH_METADATA_KEY: torch.tensor(list(learner_hash.encode("utf-8")), dtype=torch.uint8),
+    }
+    parameters_queue.put(state_to_bytes(cast(dict[str, torch.Tensor], state_dict_payload)))
 
     with pytest.raises(RuntimeError, match="Actor/Learner config mismatch") as exc_info:
         update_policy_parameters(
-            policy=cast(SACPolicy, policy),
+            policy=cast(SACPolicy, cast(object, policy)),
             parameters_queue=parameters_queue,
             device="cpu",
             cfg=cfg,
