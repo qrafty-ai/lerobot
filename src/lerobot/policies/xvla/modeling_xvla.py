@@ -23,13 +23,16 @@ import logging
 import os
 from collections import deque
 from pathlib import Path
+from typing import Unpack, cast
 
 import torch
 import torch.nn.functional as F  # noqa: N812
+from huggingface_hub.errors import HfHubHTTPError
 from torch import Tensor, nn
 
 from lerobot.configs.policies import PreTrainedConfig
-from lerobot.policies.pretrained import PreTrainedPolicy, T
+from lerobot.policies.pretrained import ActionSelectKwargs as BaseActionSelectKwargs, PreTrainedPolicy, T
+from lerobot.policies.rtc.modeling_rtc import RTCProcessor
 from lerobot.policies.utils import populate_queues
 from lerobot.utils.constants import ACTION, OBS_LANGUAGE_TOKENS, OBS_STATE
 
@@ -50,11 +53,14 @@ class XVLAModel(nn.Module):
         config: XVLAConfig,
         florence_config: Florence2Config,
         proprio_dim: int,
+        rtc_processor: RTCProcessor | None = None,
     ) -> None:
         super().__init__()
-        self.config = config
+        self.config: XVLAConfig = config
         self.chunk_size: int = config.chunk_size
         self.use_proprio: bool = config.use_proprio
+        self.rtc_processor = rtc_processor
+        self._last_raw_action_chunk: Tensor | None = None
 
         # Build action space with auto-detection for "auto" mode
         if config.action_mode.lower() == "auto":
@@ -108,6 +114,9 @@ class XVLAModel(nn.Module):
         # Apply dtype casting based on config
         self._apply_dtype()
 
+    def _rtc_enabled(self) -> bool:
+        return self.config.rtc_config is not None and self.config.rtc_config.enabled
+
     def _get_target_dtype(self) -> torch.dtype:
         """Get the target dtype based on config."""
         if self.config.dtype == "bfloat16":
@@ -156,10 +165,10 @@ class XVLAModel(nn.Module):
 
     def forward_vlm(
         self,
-        input_ids: torch.LongTensor,
-        pixel_values: torch.FloatTensor,
-        image_mask: torch.Tensor,
-    ) -> dict[str, torch.Tensor]:
+        input_ids: Tensor,
+        pixel_values: Tensor,
+        image_mask: Tensor,
+    ) -> dict[str, Tensor]:
         """
         Encode text and multi-view images via Florence2 encoder.
         """
@@ -193,13 +202,13 @@ class XVLAModel(nn.Module):
 
     def forward(
         self,
-        input_ids: torch.LongTensor,
-        image_input: torch.FloatTensor,
-        image_mask: torch.Tensor,
-        domain_id: torch.LongTensor,
-        proprio: torch.Tensor,
-        action: torch.Tensor,
-    ) -> dict[str, torch.Tensor]:
+        input_ids: Tensor,
+        image_input: Tensor,
+        image_mask: Tensor,
+        domain_id: Tensor,
+        proprio: Tensor,
+        action: Tensor,
+    ) -> dict[str, Tensor]:
         """
         Forward pass for the XVLA model.
         """
@@ -231,12 +240,14 @@ class XVLAModel(nn.Module):
     @torch.no_grad()
     def generate_actions(
         self,
-        input_ids: torch.LongTensor,
-        image_input: torch.FloatTensor,
-        image_mask: torch.Tensor,
-        domain_id: torch.LongTensor,
-        proprio: torch.Tensor,
+        input_ids: Tensor,
+        image_input: Tensor,
+        image_mask: Tensor,
+        domain_id: Tensor,
+        proprio: Tensor,
         steps: int,
+        noise: Tensor | None = None,
+        **kwargs,
     ) -> torch.Tensor:
         self.eval()
 
@@ -249,44 +260,101 @@ class XVLAModel(nn.Module):
         batch_size = input_ids.shape[0]
         action_dim = self.dim_action
 
-        x1 = torch.randn(batch_size, self.chunk_size, action_dim, device=proprio.device, dtype=target_dtype)
-        action = torch.zeros_like(x1)
+        if noise is None:
+            x_t = torch.randn(
+                batch_size, self.chunk_size, action_dim, device=proprio.device, dtype=target_dtype
+            )
+        else:
+            x_t = noise.to(device=proprio.device, dtype=target_dtype)
 
         steps = max(1, int(steps))
+        dt = -1.0 / steps
         for i in range(steps, 0, -1):
             t = torch.full((batch_size,), i / steps, device=proprio.device, dtype=target_dtype)
-            x_t = x1 * t.view(-1, 1, 1) + action * (1 - t).view(-1, 1, 1)
-            proprio_m, x_t_m = self.action_space.preprocess(proprio, x_t)
-            action = self.transformer(
-                domain_id=domain_id,
-                action_with_noise=x_t_m,
-                proprio=proprio_m,
-                t=t,
-                **enc,
-            )
-        return self.action_space.postprocess(action)
+
+            def denoise_step_partial_call(input_x_t: Tensor, current_timestep: Tensor = t) -> Tensor:
+                return self.denoise_step(
+                    x_t=input_x_t,
+                    timestep=current_timestep,
+                    domain_id=domain_id,
+                    proprio=proprio,
+                    enc=enc,
+                )
+
+            rtc_processor = self.rtc_processor
+            if self._rtc_enabled() and rtc_processor is not None:
+                inference_delay = kwargs.get("inference_delay")
+                prev_chunk_left_over = kwargs.get("prev_chunk_left_over")
+                execution_horizon = kwargs.get("execution_horizon")
+
+                v_t = rtc_processor.denoise_step(
+                    x_t=x_t,
+                    prev_chunk_left_over=prev_chunk_left_over,
+                    inference_delay=inference_delay,
+                    time=i / steps,
+                    original_denoise_step_partial=denoise_step_partial_call,
+                    execution_horizon=execution_horizon,
+                )
+            else:
+                v_t = denoise_step_partial_call(x_t)
+
+            x_t = x_t + dt * v_t
+
+            if self.rtc_processor is not None and self.rtc_processor.is_debug_enabled():
+                self.rtc_processor.track(time=i / steps, x_t=x_t, v_t=v_t)
+
+        self._last_raw_action_chunk = x_t.detach().clone()
+        return self.action_space.postprocess(x_t)
+
+    def denoise_step(
+        self,
+        x_t: Tensor,
+        timestep: Tensor,
+        domain_id: Tensor,
+        proprio: Tensor,
+        enc: dict[str, Tensor],
+    ) -> Tensor:
+        proprio_m, x_t_m = self.action_space.preprocess(proprio, x_t)
+        clean_action = self.transformer(
+            domain_id=domain_id,
+            action_with_noise=x_t_m,
+            proprio=proprio_m,
+            t=timestep,
+            **enc,
+        )
+        timestep = torch.clamp(timestep, min=1e-5)
+        return (x_t - clean_action) / timestep.view(-1, 1, 1)
 
 
 class XVLAPolicy(PreTrainedPolicy):
     """LeRobot-compliant wrapper built around the XVLA model."""
 
-    config_class = XVLAConfig
-    name = "xvla"
+    config_class: type[XVLAConfig] = XVLAConfig
+    name: str = "xvla"
 
     def __init__(self, config: XVLAConfig, **kwargs):
         super().__init__(config)
+        self.config: XVLAConfig = config
         config.validate_features()
         florence_config = config.get_florence_config()
         proprio_dim = config.max_state_dim if config.use_proprio else 0
-        self.model = XVLAModel(config=config, florence_config=florence_config, proprio_dim=proprio_dim)
+        self.init_rtc_processor()
+        self.model = XVLAModel(
+            config=config,
+            florence_config=florence_config,
+            proprio_dim=proprio_dim,
+            rtc_processor=self.rtc_processor,
+        )
+        self._last_raw_action_chunk: Tensor | None = None
         self.reset()
 
     def reset(self) -> None:
         self._queues = {
             ACTION: deque(maxlen=self.config.n_action_steps),
         }
+        self._last_raw_action_chunk = None
 
-    def get_optim_params(self) -> dict:
+    def get_optim_params(self) -> dict[str, nn.Parameter]:
         """Return trainable named parameters for optimization.
 
         Returns a dict of name -> param for all trainable parameters.
@@ -294,6 +362,19 @@ class XVLAPolicy(PreTrainedPolicy):
         based on parameter names (e.g., 1/10 LR for VLM components).
         """
         return dict(filter(lambda kv: kv[1].requires_grad, self.named_parameters()))
+
+    def init_rtc_processor(self):
+        self.rtc_processor = None
+
+        if self.config.rtc_config is not None:
+            self.rtc_processor = RTCProcessor(self.config.rtc_config)
+
+            model_value = getattr(self, "model", None)
+            if model_value is not None:
+                model_value.rtc_processor = self.rtc_processor
+
+    def _rtc_enabled(self) -> bool:
+        return self.config.rtc_config is not None and self.config.rtc_config.enabled
 
     def _prepare_state(self, batch: dict[str, Tensor], batch_size: int, device: torch.device) -> Tensor:
         if not self.config.use_proprio or OBS_STATE not in batch:
@@ -383,34 +464,111 @@ class XVLAPolicy(PreTrainedPolicy):
             "proprio": proprio,
         }
 
-    def forward(self, batch: dict[str, Tensor]) -> tuple[Tensor, dict]:
+    def forward(self, batch: dict[str, Tensor]) -> tuple[Tensor, dict[str, float]]:
         inputs = self._build_model_inputs(batch)
         targets = self._prepare_action_targets(batch)
         losses = self.model(action=targets, **inputs)
-        total_loss = sum(losses.values())
+        total_loss = torch.stack(tuple(losses.values())).sum()
 
         log_dict = {k: v.detach().item() for k, v in losses.items()}
         log_dict["loss"] = total_loss.detach().item()
         return total_loss, log_dict
 
-    def _get_action_chunk(self, batch: dict[str, Tensor]) -> Tensor:
+    def _get_action_chunk(self, batch: dict[str, Tensor], **kwargs) -> Tensor:
         inputs = self._build_model_inputs(batch)
-        actions = self.model.generate_actions(**inputs, steps=self.config.num_denoising_steps)
+        actions = self.model.generate_actions(**inputs, steps=self.config.num_denoising_steps, **kwargs)
+        self._last_raw_action_chunk = self.model._last_raw_action_chunk
         return actions
 
-    @torch.no_grad()
-    def predict_action_chunk(self, batch: dict[str, Tensor], noise: Tensor | None = None) -> Tensor:  # noqa: ARG002
-        self.eval()
-        self._queues = populate_queues(self._queues, batch, exclude_keys=[ACTION])
-        return self._get_action_chunk(batch)
+    def _resolve_prev_chunk_left_over(
+        self, prev_chunk_left_over: Tensor | None, inference_delay: int | None
+    ) -> Tensor | None:
+        if prev_chunk_left_over is not None:
+            return prev_chunk_left_over
+
+        if inference_delay is None or self._last_raw_action_chunk is None:
+            return None
+
+        return self._last_raw_action_chunk[:, inference_delay:]
+
+    def _validate_rtc_kwargs(
+        self,
+        inference_delay: int | None,
+        execution_horizon: int | None,
+        prev_chunk_left_over: Tensor | None,
+        batch_size: int,
+    ) -> None:
+
+        if inference_delay is not None and inference_delay < 0:
+            raise ValueError(f"inference_delay must be >= 0, got {inference_delay}")
+
+        if execution_horizon is not None and execution_horizon < 0:
+            raise ValueError(f"execution_horizon must be >= 0, got {execution_horizon}")
+
+        if prev_chunk_left_over is not None and inference_delay is None:
+            raise ValueError("inference_delay is required when prev_chunk_left_over is provided")
+
+        if (
+            inference_delay is not None
+            and execution_horizon is not None
+            and execution_horizon < inference_delay
+        ):
+            raise ValueError(
+                f"execution_horizon ({execution_horizon}) must be >= inference_delay ({inference_delay})"
+            )
+
+        if prev_chunk_left_over is None:
+            return
+
+        if prev_chunk_left_over.ndim not in {2, 3}:
+            raise ValueError(
+                f"prev_chunk_left_over must be rank 2 or 3, got shape {tuple(prev_chunk_left_over.shape)}"
+            )
+
+        if prev_chunk_left_over.ndim == 3 and prev_chunk_left_over.shape[0] != batch_size:
+            raise ValueError(
+                f"prev_chunk_left_over batch size ({prev_chunk_left_over.shape[0]}) must match batch size ({batch_size})"
+            )
+
+        if prev_chunk_left_over.shape[-1] != self.model.dim_action:
+            raise ValueError(
+                "prev_chunk_left_over must be in XVLA raw model action space with last dimension "
+                f"{self.model.dim_action}, got {prev_chunk_left_over.shape[-1]}"
+            )
 
     @torch.no_grad()
-    def select_action(self, batch: dict[str, Tensor], noise: Tensor | None = None) -> Tensor:  # noqa: ARG002
+    def predict_action_chunk(
+        self, batch: dict[str, Tensor], **kwargs: Unpack[BaseActionSelectKwargs]
+    ) -> Tensor:
+        self.eval()
+        self._queues = populate_queues(self._queues, batch, exclude_keys=[ACTION])
+        rtc_kwargs = cast(dict[str, object], cast(object, kwargs))
+        if self._rtc_enabled():
+            batch_size = batch[OBS_LANGUAGE_TOKENS].shape[0]
+            resolved_prev_chunk = self._resolve_prev_chunk_left_over(
+                prev_chunk_left_over=cast(Tensor | None, rtc_kwargs.get("prev_chunk_left_over")),
+                inference_delay=cast(int | None, rtc_kwargs.get("inference_delay")),
+            )
+            rtc_kwargs["prev_chunk_left_over"] = resolved_prev_chunk
+            self._validate_rtc_kwargs(
+                inference_delay=cast(int | None, rtc_kwargs.get("inference_delay")),
+                execution_horizon=cast(int | None, rtc_kwargs.get("execution_horizon")),
+                prev_chunk_left_over=cast(Tensor | None, rtc_kwargs.get("prev_chunk_left_over")),
+                batch_size=batch_size,
+            )
+        return self._get_action_chunk(batch, **rtc_kwargs)
+
+    @torch.no_grad()
+    def select_action(self, batch: dict[str, Tensor], **kwargs: Unpack[BaseActionSelectKwargs]) -> Tensor:
+        assert not self._rtc_enabled(), (
+            "RTC is not supported for select_action, use it with predict_action_chunk"
+        )
+
         self.eval()
         self._queues = populate_queues(self._queues, batch, exclude_keys=[ACTION])
 
         if len(self._queues[ACTION]) == 0:
-            actions = self._get_action_chunk(batch)
+            actions = self._get_action_chunk(batch, noise=kwargs.get("noise"))
             self._queues[ACTION].extend(actions.transpose(0, 1)[: self.config.n_action_steps])
 
         return self._queues[ACTION].popleft()
@@ -423,7 +581,7 @@ class XVLAPolicy(PreTrainedPolicy):
         config: PreTrainedConfig | None = None,
         force_download: bool = False,
         resume_download: bool | None = None,
-        proxies: dict | None = None,
+        proxies: dict[str, str] | None = None,
         token: str | bool | None = None,
         cache_dir: str | Path | None = None,
         local_files_only: bool = False,
@@ -454,7 +612,7 @@ class XVLAPolicy(PreTrainedPolicy):
             )
 
         model_id = str(pretrained_name_or_path)
-        instance = cls(config, **kwargs)
+        instance = cast("XVLAPolicy", cls(config, **kwargs))
         # step 2: locate model.safetensors
         if os.path.isdir(model_id):
             logging.info("Loading weights from local directory")
@@ -462,7 +620,6 @@ class XVLAPolicy(PreTrainedPolicy):
         else:
             try:
                 from huggingface_hub import hf_hub_download
-                from huggingface_hub.utils import HfHubHTTPError
 
                 model_file = hf_hub_download(
                     repo_id=model_id,
@@ -471,7 +628,7 @@ class XVLAPolicy(PreTrainedPolicy):
                     cache_dir=cache_dir,
                     force_download=force_download,
                     proxies=proxies,
-                    resume_download=resume_download,
+                    resume_download=resume_download if resume_download is not None else False,
                     token=token,
                     local_files_only=local_files_only,
                 )
@@ -494,7 +651,7 @@ class XVLAPolicy(PreTrainedPolicy):
         instance.model._apply_dtype()
         instance.to(config.device)
         instance.eval()
-        return instance
+        return cast(T, instance)
 
 
 def resize_with_pad(img: torch.Tensor, height: int, width: int, pad_value: float = 0.0) -> torch.Tensor:

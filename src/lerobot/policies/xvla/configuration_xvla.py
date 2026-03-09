@@ -30,6 +30,7 @@ from huggingface_hub.errors import HfHubHTTPError
 from lerobot.configs.policies import PreTrainedConfig
 from lerobot.configs.types import FeatureType, NormalizationMode, PolicyFeature
 from lerobot.optim.optimizers import XVLAAdamWConfig
+from lerobot.policies.rtc.configuration_rtc import RTCConfig
 from lerobot.optim.schedulers import CosineDecayWithWarmupSchedulerConfig
 from lerobot.utils.constants import OBS_IMAGES
 
@@ -92,6 +93,7 @@ class XVLAConfig(PreTrainedConfig):
     max_state_dim: int = 32
     max_action_dim: int = 20  # Maximum action dimension for padding (used by "auto" action mode)
     domain_feature_key: str | None = None
+    rtc_config: RTCConfig | None = None
 
     # Vision preprocessing
     resize_imgs_with_padding: tuple[int, int] | None = None
