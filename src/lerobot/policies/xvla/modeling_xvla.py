@@ -415,6 +415,105 @@ class XVLAPolicy(PreTrainedPolicy):
 
         return self._queues[ACTION].popleft()
 
+    @staticmethod
+    def _load_checkpoint_config(
+        pretrained_name_or_path: str | Path,
+        *,
+        force_download: bool = False,
+        resume_download: bool | None = None,
+        proxies: dict | None = None,
+        token: str | bool | None = None,
+        cache_dir: str | Path | None = None,
+        local_files_only: bool = False,
+        revision: str | None = None,
+    ) -> PreTrainedConfig | None:
+        try:
+            return PreTrainedConfig.from_pretrained(
+                pretrained_name_or_path=pretrained_name_or_path,
+                force_download=force_download,
+                resume_download=resume_download,
+                proxies=proxies,
+                token=token,
+                cache_dir=cache_dir,
+                local_files_only=local_files_only,
+                revision=revision,
+            )
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            logging.warning("Failed to load XVLA checkpoint config for compatibility checks: %s", exc)
+            return None
+
+    @staticmethod
+    def _get_shape_mismatches(
+        instance: "XVLAPolicy", state_dict: dict[str, Tensor]
+    ) -> dict[str, tuple[torch.Size, torch.Size]]:
+        model_state = instance.state_dict()
+        mismatches = {}
+        for key, tensor in state_dict.items():
+            if key in model_state and model_state[key].shape != tensor.shape:
+                mismatches[key] = (tensor.shape, model_state[key].shape)
+        return mismatches
+
+    @staticmethod
+    def _format_shape_mismatches(mismatches: dict[str, tuple[torch.Size, torch.Size]]) -> str:
+        details = [
+            f"\t{key}: checkpoint {tuple(checkpoint_shape)} vs runtime {tuple(runtime_shape)}"
+            for key, (checkpoint_shape, runtime_shape) in mismatches.items()
+        ]
+        return "Error(s) in loading state_dict for XVLAPolicy:\n" + "\n".join(details)
+
+    @staticmethod
+    def _format_max_state_dim_reinit_error(runtime_max_state_dim: int, checkpoint_max_state_dim: int) -> str:
+        flag_name = "allow_reinit_action_encoder_for_larger_max_state_dim"
+        return (
+            "XVLA checkpoint compatibility error: runtime `max_state_dim` "
+            f"({runtime_max_state_dim}) is larger than checkpoint `max_state_dim` ({checkpoint_max_state_dim}). "
+            f"Set `policy.{flag_name}=true` to preserve the checkpoint's compatible action encoder slices and "
+            "randomly initialize only the added proprio channels, or keep `max_state_dim` at or below the "
+            "checkpoint value."
+        )
+
+    @staticmethod
+    def _expand_action_encoder_weight(
+        instance: "XVLAPolicy", checkpoint_weight: Tensor, checkpoint_max_state_dim: int
+    ) -> Tensor:
+        action_encoder = instance.model.transformer.action_encoder
+        runtime_weight = action_encoder.fc.weight.detach().clone()
+        num_domains, flattened_size = runtime_weight.shape
+        output_size = action_encoder.output_size
+        runtime_input_size = action_encoder.input_size
+        action_dim = instance.model.transformer.dim_action
+        time_dim = instance.model.transformer.dim_time
+        runtime_max_state_dim = instance.model.dim_proprio
+        checkpoint_input_size = action_dim + checkpoint_max_state_dim + time_dim
+
+        if checkpoint_weight.shape != (num_domains, checkpoint_input_size * output_size):
+            raise RuntimeError(
+                "Unexpected XVLA action encoder checkpoint shape: "
+                f"got {tuple(checkpoint_weight.shape)}, expected "
+                f"({num_domains}, {checkpoint_input_size * output_size})"
+            )
+        if flattened_size != runtime_input_size * output_size:
+            raise RuntimeError(
+                "Unexpected XVLA action encoder runtime shape: "
+                f"got {tuple(runtime_weight.shape)}, expected ({num_domains}, {runtime_input_size * output_size})"
+            )
+
+        checkpoint_weight = checkpoint_weight.to(device=runtime_weight.device, dtype=runtime_weight.dtype)
+        checkpoint_view = checkpoint_weight.view(num_domains, checkpoint_input_size, output_size)
+        runtime_view = runtime_weight.view(num_domains, runtime_input_size, output_size)
+
+        checkpoint_proprio_end = action_dim + checkpoint_max_state_dim
+        runtime_proprio_end = action_dim + runtime_max_state_dim
+        checkpoint_time_start = checkpoint_proprio_end
+        runtime_time_start = runtime_proprio_end
+
+        runtime_view[:, :action_dim, :] = checkpoint_view[:, :action_dim, :]
+        runtime_view[:, action_dim:checkpoint_proprio_end, :] = checkpoint_view[
+            :, action_dim:checkpoint_proprio_end, :
+        ]
+        runtime_view[:, runtime_time_start:, :] = checkpoint_view[:, checkpoint_time_start:, :]
+        return runtime_view.reshape(num_domains, runtime_input_size * output_size)
+
     @classmethod
     def from_pretrained(
         cls: builtins.type[T],
@@ -487,7 +586,57 @@ class XVLAPolicy(PreTrainedPolicy):
             state_dict[shared_key] = state_dict[encoder_key]
             # or deepcopy
         # step 4: load into instance
-        instance.load_state_dict(state_dict, strict=True)
+        checkpoint_config = XVLAPolicy._load_checkpoint_config(
+            pretrained_name_or_path,
+            force_download=force_download,
+            resume_download=resume_download,
+            proxies=proxies,
+            token=token,
+            cache_dir=cache_dir,
+            local_files_only=local_files_only,
+            revision=revision,
+        )
+        mismatches = XVLAPolicy._get_shape_mismatches(instance, state_dict)
+        runtime_max_state_dim = getattr(config, "max_state_dim", None)
+        checkpoint_max_state_dim = getattr(checkpoint_config, "max_state_dim", None)
+        allow_reinit_on_larger_state_dim = bool(
+            getattr(config, "allow_reinit_action_encoder_for_larger_max_state_dim", False)
+        )
+        action_encoder_weight_key = "model.transformer.action_encoder.fc.weight"
+        max_state_dim_growth_only = (
+            runtime_max_state_dim is not None
+            and checkpoint_max_state_dim is not None
+            and bool(getattr(config, "use_proprio", False))
+            and bool(getattr(checkpoint_config, "use_proprio", False))
+            and runtime_max_state_dim > checkpoint_max_state_dim
+            and set(mismatches) == {action_encoder_weight_key}
+        )
+        allow_action_encoder_reinit = allow_reinit_on_larger_state_dim and max_state_dim_growth_only
+
+        if allow_action_encoder_reinit:
+            state_dict[action_encoder_weight_key] = XVLAPolicy._expand_action_encoder_weight(
+                instance,
+                state_dict[action_encoder_weight_key],
+                checkpoint_max_state_dim,
+            )
+            instance.load_state_dict(state_dict, strict=True)
+            logging.warning(
+                "Expanded `%s` while loading XVLA checkpoint because runtime max_state_dim=%s "
+                "is larger than checkpoint max_state_dim=%s.",
+                action_encoder_weight_key,
+                runtime_max_state_dim,
+                checkpoint_max_state_dim,
+            )
+        else:
+            if max_state_dim_growth_only:
+                raise RuntimeError(
+                    XVLAPolicy._format_max_state_dim_reinit_error(
+                        runtime_max_state_dim, checkpoint_max_state_dim
+                    )
+                )
+            if mismatches:
+                raise RuntimeError(XVLAPolicy._format_shape_mismatches(mismatches))
+            instance.load_state_dict(state_dict, strict=True)
         logging.info("Loaded XVLA checkpoint")
         # step 5: finalize
         # Reapply dtype after loading state dict
