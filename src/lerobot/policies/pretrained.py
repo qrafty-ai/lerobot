@@ -39,6 +39,9 @@ T = TypeVar("T", bound="PreTrainedPolicy")
 
 class ActionSelectKwargs(TypedDict, total=False):
     noise: Tensor | None
+    inference_delay: int | None
+    prev_chunk_left_over: Tensor | None
+    execution_horizon: int | None
 
 
 class PreTrainedPolicy(nn.Module, HubMixin, abc.ABC):
