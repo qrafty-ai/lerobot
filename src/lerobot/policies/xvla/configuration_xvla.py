@@ -91,6 +91,9 @@ class XVLAConfig(PreTrainedConfig):
     use_proprio: bool = True
     max_state_dim: int = 32
     max_action_dim: int = 20  # Maximum action dimension for padding (used by "auto" action mode)
+    gripper_indices: list[int] | None = None
+    action_joint_indices: list[int] | None = None
+    state_joint_indices: list[int] | None = None
     allow_reinit_action_encoder_for_larger_max_state_dim: bool = False
     domain_feature_key: str | None = None
 
@@ -133,6 +136,23 @@ class XVLAConfig(PreTrainedConfig):
             raise ValueError("`num_image_views` must be > 0 when specified.")
         if self.dtype not in ["bfloat16", "float32"]:
             raise ValueError(f"Invalid dtype: {self.dtype}")
+        if self.gripper_indices is not None:
+            if len(self.gripper_indices) == 0:
+                raise ValueError("`gripper_indices` must be non-empty when provided.")
+            if len(set(self.gripper_indices)) != len(self.gripper_indices):
+                raise ValueError("`gripper_indices` must not contain duplicates.")
+            if any(idx < 0 for idx in self.gripper_indices):
+                raise ValueError("`gripper_indices` must contain only non-negative indices.")
+        if (self.action_joint_indices is None) != (self.state_joint_indices is None):
+            raise ValueError(
+                "`action_joint_indices` and `state_joint_indices` must both be set or both be omitted."
+            )
+        if self.action_joint_indices is not None:
+            state_joint_indices = self.state_joint_indices
+            if state_joint_indices is None or len(self.action_joint_indices) != len(state_joint_indices):
+                raise ValueError(
+                    "`action_joint_indices` and `state_joint_indices` must have the same length."
+                )
         self._florence_config_obj: Florence2Config | None = None
 
     def get_florence_config(self) -> Florence2Config:
@@ -200,6 +220,8 @@ class XVLAConfig(PreTrainedConfig):
             self.num_image_views = max(self.num_image_views, len(self.image_features) + self.empty_cameras)
 
         if self.empty_cameras > 0:
+            if self.input_features is None:
+                self.input_features = {}
             height, width = (480, 640)
             if self.resize_imgs_with_padding is not None:
                 height, width = self.resize_imgs_with_padding

@@ -81,6 +81,20 @@ class BaseActionSpace(nn.Module):
         """Alias for compute_loss."""
         return self.compute_loss(pred, target)
 
+    def encode_targets(self, action: torch.Tensor, proprio: torch.Tensor) -> torch.Tensor:
+        return action
+
+    def decode_actions(self, action: torch.Tensor, proprio: torch.Tensor) -> torch.Tensor:
+        return action
+
+    def re_reference_leftover(
+        self,
+        leftover: torch.Tensor,
+        old_proprio: torch.Tensor,
+        new_proprio: torch.Tensor,
+    ) -> torch.Tensor:
+        return leftover
+
     # ---------------------------------------------------------------------
     # Space-level hooks
     # ---------------------------------------------------------------------
@@ -90,7 +104,6 @@ class BaseActionSpace(nn.Module):
         action: torch.Tensor,
         mode: str = "train",
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Default: return unchanged."""
         return proprio, action
 
     def postprocess(self, action: torch.Tensor) -> torch.Tensor:
@@ -125,27 +138,26 @@ class EE6DActionSpace(BaseActionSpace):
     ROT_IDX_1 = (3, 4, 5, 6, 7, 8)
     ROT_IDX_2 = (13, 14, 15, 16, 17, 18)
 
-    def __init__(self):
+    def __init__(self, gripper_indices: Iterable[int] | None = None):
         super().__init__()
         self.mse = nn.MSELoss()
         self.bce = nn.BCEWithLogitsLoss()
+        self.gripper_idx = tuple(self.gripper_idx if gripper_indices is None else gripper_indices)
+        _ensure_indices_valid(self.dim_action, self.gripper_idx, "gripper_idx")
 
-    def compute_loss(self, pred, target):
+    def compute_loss(self, pred: torch.Tensor, target: torch.Tensor) -> dict[str, torch.Tensor]:
         assert pred.shape == target.shape, "pred/target shapes must match"
-        batch_size, seq_len, action_dim = pred.shape
+        _, _, action_dim = pred.shape
         _ensure_indices_valid(action_dim, self.gripper_idx, "gripper_idx")
 
-        # Gripper BCE
         g_losses = [self.bce(pred[:, :, gi], target[:, :, gi]) for gi in self.gripper_idx]
-        gripper_loss = sum(g_losses) / len(self.gripper_idx) * self.GRIPPER_SCALE
+        gripper_loss = torch.stack(g_losses).mean() * self.GRIPPER_SCALE
 
-        # XYZ position
         pos_loss = (
             self.mse(pred[:, :, self.POS_IDX_1], target[:, :, self.POS_IDX_1])
             + self.mse(pred[:, :, self.POS_IDX_2], target[:, :, self.POS_IDX_2])
         ) * self.XYZ_SCALE
 
-        # Rotation 6D
         rot_loss = (
             self.mse(pred[:, :, self.ROT_IDX_1], target[:, :, self.ROT_IDX_1])
             + self.mse(pred[:, :, self.ROT_IDX_2], target[:, :, self.ROT_IDX_2])
@@ -157,7 +169,7 @@ class EE6DActionSpace(BaseActionSpace):
             "gripper_loss": gripper_loss,
         }
 
-    def preprocess(self, proprio, action, mode="train"):
+    def preprocess(self, proprio: torch.Tensor, action: torch.Tensor, mode: str = "train"):
         """Zero-out gripper channels in proprio/action."""
         proprio_m = proprio.clone()
         action_m = action.clone()
@@ -181,18 +193,20 @@ class JointActionSpace(BaseActionSpace):
     GRIPPER_SCALE = 0.1
     JOINTS_SCALE = 1.0
 
-    def __init__(self):
+    def __init__(self, gripper_indices: Iterable[int] | None = None):
         super().__init__()
         self.mse = nn.MSELoss()
         self.bce = nn.BCEWithLogitsLoss()
+        self.gripper_idx = tuple(self.gripper_idx if gripper_indices is None else gripper_indices)
+        _ensure_indices_valid(self.dim_action, self.gripper_idx, "gripper_idx")
 
-    def compute_loss(self, pred, target):
+    def compute_loss(self, pred: torch.Tensor, target: torch.Tensor) -> dict[str, torch.Tensor]:
         assert pred.shape == target.shape
-        batch_size, seq_len, action_dim = pred.shape
+        _, _, action_dim = pred.shape
         _ensure_indices_valid(action_dim, self.gripper_idx, "gripper_idx")
 
         g_losses = [self.bce(pred[:, :, gi], target[:, :, gi]) for gi in self.gripper_idx]
-        gripper_loss = sum(g_losses) / len(self.gripper_idx) * self.GRIPPER_SCALE
+        gripper_loss = torch.stack(g_losses).mean() * self.GRIPPER_SCALE
 
         joints_idx = tuple(i for i in range(action_dim) if i not in set(self.gripper_idx))
         joints_loss = self.mse(pred[:, :, joints_idx], target[:, :, joints_idx]) * self.JOINTS_SCALE
@@ -202,7 +216,7 @@ class JointActionSpace(BaseActionSpace):
             "gripper_loss": gripper_loss,
         }
 
-    def preprocess(self, proprio, action, mode="train"):
+    def preprocess(self, proprio: torch.Tensor, action: torch.Tensor, mode: str = "train"):
         """Zero-out gripper channels in proprio/action."""
         proprio_m = proprio.clone()
         action_m = action.clone()
@@ -212,6 +226,108 @@ class JointActionSpace(BaseActionSpace):
 
     def postprocess(self, action: torch.Tensor) -> torch.Tensor:
         """Apply sigmoid to gripper logits."""
+        if action.size(-1) > max(self.gripper_idx):
+            action[..., self.gripper_idx] = torch.sigmoid(action[..., self.gripper_idx])
+        return action
+
+
+@register_action("chunk_delta_joint")
+class ChunkDeltaJointActionSpace(BaseActionSpace):
+    dim_action = 14
+    gripper_idx = (6, 13)
+    GRIPPER_SCALE = 0.1
+    JOINTS_SCALE = 1.0
+
+    def __init__(
+        self,
+        gripper_indices: Iterable[int] | None = None,
+        action_joint_indices: Iterable[int] | None = None,
+        state_joint_indices: Iterable[int] | None = None,
+    ):
+        super().__init__()
+        self.mse = nn.MSELoss()
+        self.bce = nn.BCEWithLogitsLoss()
+        self.gripper_idx = tuple(self.gripper_idx if gripper_indices is None else gripper_indices)
+
+        default_action_joint_idx = tuple(i for i in range(self.dim_action) if i not in set(self.gripper_idx))
+        self.action_joint_idx = tuple(
+            default_action_joint_idx if action_joint_indices is None else action_joint_indices
+        )
+        self.state_joint_idx = tuple(
+            self.action_joint_idx if state_joint_indices is None else state_joint_indices
+        )
+
+        if len(self.action_joint_idx) != len(self.state_joint_idx):
+            raise ValueError(
+                "action_joint_indices and state_joint_indices must have the same length, got "
+                f"{len(self.action_joint_idx)} and {len(self.state_joint_idx)}"
+            )
+        if set(self.action_joint_idx) & set(self.gripper_idx):
+            raise ValueError("action_joint_indices must not overlap gripper_indices")
+
+        _ensure_indices_valid(self.dim_action, self.gripper_idx, "gripper_idx")
+        _ensure_indices_valid(self.dim_action, self.action_joint_idx, "action_joint_idx")
+
+    def _state_reference(self, proprio: torch.Tensor) -> torch.Tensor:
+        if proprio.size(-1) <= max(self.state_joint_idx):
+            raise ValueError(
+                f"Proprio dimension {proprio.size(-1)} is too small for state_joint_indices "
+                f"{self.state_joint_idx}"
+            )
+        return proprio[..., self.state_joint_idx]
+
+    def encode_targets(self, action: torch.Tensor, proprio: torch.Tensor) -> torch.Tensor:
+        delta = action.clone()
+        reference = self._state_reference(proprio).unsqueeze(1)
+        delta[..., self.action_joint_idx] = delta[..., self.action_joint_idx] - reference
+        return delta
+
+    def decode_actions(self, action: torch.Tensor, proprio: torch.Tensor) -> torch.Tensor:
+        absolute = action.clone()
+        reference = self._state_reference(proprio).unsqueeze(1)
+        absolute[..., self.action_joint_idx] = absolute[..., self.action_joint_idx] + reference
+        return absolute
+
+    def re_reference_leftover(
+        self,
+        leftover: torch.Tensor,
+        old_proprio: torch.Tensor,
+        new_proprio: torch.Tensor,
+    ) -> torch.Tensor:
+        adjusted = leftover.clone()
+        old_reference = self._state_reference(old_proprio).unsqueeze(1)
+        new_reference = self._state_reference(new_proprio).unsqueeze(1)
+        adjusted[..., self.action_joint_idx] = (
+            adjusted[..., self.action_joint_idx] + old_reference - new_reference
+        )
+        return adjusted
+
+    def compute_loss(self, pred: torch.Tensor, target: torch.Tensor) -> dict[str, torch.Tensor]:
+        assert pred.shape == target.shape
+        _, _, action_dim = pred.shape
+        _ensure_indices_valid(action_dim, self.gripper_idx, "gripper_idx")
+        _ensure_indices_valid(action_dim, self.action_joint_idx, "action_joint_idx")
+
+        g_losses = [self.bce(pred[:, :, gi], target[:, :, gi]) for gi in self.gripper_idx]
+        gripper_loss = torch.stack(g_losses).mean() * self.GRIPPER_SCALE
+        joints_loss = (
+            self.mse(pred[:, :, self.action_joint_idx], target[:, :, self.action_joint_idx])
+            * self.JOINTS_SCALE
+        )
+
+        return {
+            "joints_delta_loss": joints_loss,
+            "gripper_loss": gripper_loss,
+        }
+
+    def preprocess(self, proprio: torch.Tensor, action: torch.Tensor, mode: str = "train"):
+        proprio_m = proprio.clone()
+        action_m = action.clone()
+        proprio_m[..., self.gripper_idx] = 0.0
+        action_m[..., self.gripper_idx] = 0.0
+        return proprio_m, action_m
+
+    def postprocess(self, action: torch.Tensor) -> torch.Tensor:
         if action.size(-1) > max(self.gripper_idx):
             action[..., self.gripper_idx] = torch.sigmoid(action[..., self.gripper_idx])
         return action
@@ -231,9 +347,11 @@ class AGIBOTEE6DActionSpace(BaseActionSpace):
     ROT_IDX_1 = (3, 4, 5, 6, 7, 8)
     ROT_IDX_2 = (13, 14, 15, 16, 17, 18)
 
-    def __init__(self):
+    def __init__(self, gripper_indices: Iterable[int] | None = None):
         super().__init__()
         self.mse = nn.MSELoss()
+        self.gripper_idx = tuple(self.gripper_idx if gripper_indices is None else gripper_indices)
+        _ensure_indices_valid(self.dim_action, self.gripper_idx, "gripper_idx")
 
     def compute_loss(self, pred, target):
         assert pred.shape == target.shape
@@ -258,7 +376,7 @@ class AGIBOTEE6DActionSpace(BaseActionSpace):
             "gripper_loss": gripper_loss,
         }
 
-    def preprocess(self, proprio, action, mode="train"):
+    def preprocess(self, proprio: torch.Tensor, action: torch.Tensor, mode: str = "train"):
         """No preprocessing applied in AGIBOT variant."""
         return proprio, action
 
@@ -327,7 +445,7 @@ class FrankaJoint7ActionSpace(BaseActionSpace):
 
         return {"joints_loss": joints_loss}
 
-    def preprocess(self, proprio, action, mode="train"):
+    def preprocess(self, proprio: torch.Tensor, action: torch.Tensor, mode: str = "train"):
         """
         During training:
         - Pad [7] → [20]
@@ -527,17 +645,18 @@ class BimanualSO101ActionSpace(BaseActionSpace):
 
     # ---------- preprocess / postprocess ----------
 
-    def preprocess(self, proprio, action, mode="train"):
+    def preprocess(
+        self, proprio: torch.Tensor, action: torch.Tensor, mode: str = "train"
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         - If proprio/action are 12-dim, pad them to 20 for the model.
         - Zero-out gripper channels in proprio/action to focus learning on joints.
         """
         proprio_m = self._pad_to_model_dim(proprio.clone())
-        action_m = self._pad_to_model_dim(action.clone()) if action is not None else None
+        action_m = self._pad_to_model_dim(action.clone())
 
         proprio_m[..., self.gripper_idx] = 0.0
-        if action_m is not None:
-            action_m[..., self.gripper_idx] = 0.0
+        action_m[..., self.gripper_idx] = 0.0
 
         return proprio_m, action_m
 
@@ -580,6 +699,7 @@ __all__ = [
     "register_action",
     "EE6DActionSpace",
     "JointActionSpace",
+    "ChunkDeltaJointActionSpace",
     "AGIBOTEE6DActionSpace",
     "FrankaJoint7ActionSpace",
     "AutoActionSpace",
