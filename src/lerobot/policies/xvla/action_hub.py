@@ -233,13 +233,16 @@ class JointActionSpace(BaseActionSpace):
 
 @register_action("chunk_delta_joint")
 class ChunkDeltaJointActionSpace(BaseActionSpace):
-    dim_action = 14
+    dim_action = 20
+    REAL_DIM = 14
     gripper_idx = (6, 13)
     GRIPPER_SCALE = 0.1
     JOINTS_SCALE = 1.0
 
     def __init__(
         self,
+        real_dim: int | None = None,
+        max_dim: int | None = None,
         gripper_indices: Iterable[int] | None = None,
         action_joint_indices: Iterable[int] | None = None,
         state_joint_indices: Iterable[int] | None = None,
@@ -247,9 +250,11 @@ class ChunkDeltaJointActionSpace(BaseActionSpace):
         super().__init__()
         self.mse = nn.MSELoss()
         self.bce = nn.BCEWithLogitsLoss()
+        self.real_dim = self.REAL_DIM if real_dim is None else real_dim
+        self.dim_action = self.dim_action if max_dim is None else max_dim
         self.gripper_idx = tuple(self.gripper_idx if gripper_indices is None else gripper_indices)
 
-        default_action_joint_idx = tuple(i for i in range(self.dim_action) if i not in set(self.gripper_idx))
+        default_action_joint_idx = tuple(i for i in range(self.real_dim) if i not in set(self.gripper_idx))
         self.action_joint_idx = tuple(
             default_action_joint_idx if action_joint_indices is None else action_joint_indices
         )
@@ -265,8 +270,21 @@ class ChunkDeltaJointActionSpace(BaseActionSpace):
         if set(self.action_joint_idx) & set(self.gripper_idx):
             raise ValueError("action_joint_indices must not overlap gripper_indices")
 
-        _ensure_indices_valid(self.dim_action, self.gripper_idx, "gripper_idx")
-        _ensure_indices_valid(self.dim_action, self.action_joint_idx, "action_joint_idx")
+        _ensure_indices_valid(self.real_dim, self.gripper_idx, "gripper_idx")
+        _ensure_indices_valid(self.real_dim, self.action_joint_idx, "action_joint_idx")
+
+    def _pad_to_model_dim(self, x: torch.Tensor) -> torch.Tensor:
+        if x.size(-1) == self.dim_action:
+            return x
+        if x.size(-1) != self.real_dim:
+            raise ValueError(
+                f"Expected last dim to be {self.real_dim} or {self.dim_action}, got {x.size(-1)}"
+            )
+        pad_shape = list(x.shape[:-1]) + [self.dim_action - self.real_dim]
+        return torch.cat([x, x.new_zeros(pad_shape)], dim=-1)
+
+    def _trim_to_real_dim(self, x: torch.Tensor) -> torch.Tensor:
+        return x[..., : self.real_dim]
 
     def _state_reference(self, proprio: torch.Tensor) -> torch.Tensor:
         if proprio.size(-1) <= max(self.state_joint_idx):
@@ -277,13 +295,13 @@ class ChunkDeltaJointActionSpace(BaseActionSpace):
         return proprio[..., self.state_joint_idx]
 
     def encode_targets(self, action: torch.Tensor, proprio: torch.Tensor) -> torch.Tensor:
-        delta = action.clone()
+        delta = self._pad_to_model_dim(action).clone()
         reference = self._state_reference(proprio).unsqueeze(1)
         delta[..., self.action_joint_idx] = delta[..., self.action_joint_idx] - reference
         return delta
 
     def decode_actions(self, action: torch.Tensor, proprio: torch.Tensor) -> torch.Tensor:
-        absolute = action.clone()
+        absolute = self._pad_to_model_dim(action).clone()
         reference = self._state_reference(proprio).unsqueeze(1)
         absolute[..., self.action_joint_idx] = absolute[..., self.action_joint_idx] + reference
         return absolute
@@ -303,6 +321,8 @@ class ChunkDeltaJointActionSpace(BaseActionSpace):
         return adjusted
 
     def compute_loss(self, pred: torch.Tensor, target: torch.Tensor) -> dict[str, torch.Tensor]:
+        pred = self._pad_to_model_dim(pred)
+        target = self._pad_to_model_dim(target)
         assert pred.shape == target.shape
         _, _, action_dim = pred.shape
         _ensure_indices_valid(action_dim, self.gripper_idx, "gripper_idx")
@@ -322,15 +342,16 @@ class ChunkDeltaJointActionSpace(BaseActionSpace):
 
     def preprocess(self, proprio: torch.Tensor, action: torch.Tensor, mode: str = "train"):
         proprio_m = proprio.clone()
-        action_m = action.clone()
+        action_m = self._pad_to_model_dim(action).clone()
         proprio_m[..., self.gripper_idx] = 0.0
         action_m[..., self.gripper_idx] = 0.0
         return proprio_m, action_m
 
     def postprocess(self, action: torch.Tensor) -> torch.Tensor:
+        action = self._pad_to_model_dim(action)
         if action.size(-1) > max(self.gripper_idx):
             action[..., self.gripper_idx] = torch.sigmoid(action[..., self.gripper_idx])
-        return action
+        return self._trim_to_real_dim(action)
 
 
 @register_action("agibot_ee6d")

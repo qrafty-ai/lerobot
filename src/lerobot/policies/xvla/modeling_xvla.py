@@ -71,8 +71,15 @@ class XVLAModel(nn.Module):
                 max_dim=config.max_action_dim,
             )
         elif action_mode == "chunk_delta_joint":
+            real_dim = (
+                config.action_feature.shape[-1]
+                if config.action_feature is not None
+                else config.max_action_dim
+            )
             self.action_space = build_action_space(
                 action_mode,
+                real_dim=real_dim,
+                max_dim=max(config.max_action_dim, real_dim),
                 gripper_indices=config.gripper_indices,
                 action_joint_indices=config.action_joint_indices,
                 state_joint_indices=config.state_joint_indices,
