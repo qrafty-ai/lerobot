@@ -1,6 +1,6 @@
 {
   "dataset": {
-    "repo_id": "YOUR_HF_USER/YOUR_DATASET"
+    "repo_id": "qrafty-ai/use_spoon_joint_0311"
   },
   "policy": {
     "type": "xvla",
@@ -11,14 +11,13 @@
     "action_mode": "chunk_delta_joint",
     "chunk_size": 60,
     "n_action_steps": 30,
+    "domain_feature_key": 13,
     "num_denoising_steps": 10,
     "use_proprio": true,
     "max_state_dim": 52,
     "max_action_dim": 20,
     "allow_reinit_action_encoder_for_larger_max_state_dim": true,
     "gripper_indices": [16, 17],
-    "action_joint_indices": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-    "state_joint_indices": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
     "num_image_views": 3,
     "resize_imgs_with_padding": [224, 224],
     "freeze_vision_encoder": false,

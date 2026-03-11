@@ -233,45 +233,44 @@ class JointActionSpace(BaseActionSpace):
 
 @register_action("chunk_delta_joint")
 class ChunkDeltaJointActionSpace(BaseActionSpace):
-    dim_action = 20
-    REAL_DIM = 14
-    gripper_idx = (6, 13)
-    GRIPPER_SCALE = 0.1
     JOINTS_SCALE = 1.0
 
     def __init__(
         self,
-        real_dim: int | None = None,
-        max_dim: int | None = None,
-        gripper_indices: Iterable[int] | None = None,
+        real_dim: int,
+        max_dim: int,
+        gripper_indices: Iterable[int],
         action_joint_indices: Iterable[int] | None = None,
         state_joint_indices: Iterable[int] | None = None,
     ):
         super().__init__()
         self.mse = nn.MSELoss()
         self.bce = nn.BCEWithLogitsLoss()
-        self.real_dim = self.REAL_DIM if real_dim is None else real_dim
-        self.dim_action = self.dim_action if max_dim is None else max_dim
-        self.gripper_idx = tuple(self.gripper_idx if gripper_indices is None else gripper_indices)
+        self.real_dim = real_dim
+        self.dim_action = max_dim
+        self.gripper_idx = tuple(gripper_indices)
 
-        default_action_joint_idx = tuple(i for i in range(self.real_dim) if i not in set(self.gripper_idx))
-        self.action_joint_idx = tuple(
-            default_action_joint_idx if action_joint_indices is None else action_joint_indices
-        )
-        self.state_joint_idx = tuple(
-            self.action_joint_idx if state_joint_indices is None else state_joint_indices
-        )
+        default_joint_idx = tuple(i for i in range(self.real_dim) if i not in set(self.gripper_idx))
+        self.joint_idx = tuple(default_joint_idx if action_joint_indices is None else action_joint_indices)
+        self.state_joint_idx = tuple(self.joint_idx if state_joint_indices is None else state_joint_indices)
 
-        if len(self.action_joint_idx) != len(self.state_joint_idx):
+        if self.real_dim <= 0:
+            raise ValueError(f"real_dim must be > 0, got {self.real_dim}")
+        if self.dim_action < self.real_dim:
+            raise ValueError(
+                f"max_dim must be >= real_dim for chunk_delta_joint, got max_dim={self.dim_action}, real_dim={self.real_dim}"
+            )
+
+        if len(self.joint_idx) != len(self.state_joint_idx):
             raise ValueError(
                 "action_joint_indices and state_joint_indices must have the same length, got "
-                f"{len(self.action_joint_idx)} and {len(self.state_joint_idx)}"
+                f"{len(self.joint_idx)} and {len(self.state_joint_idx)}"
             )
-        if set(self.action_joint_idx) & set(self.gripper_idx):
+        if set(self.joint_idx) & set(self.gripper_idx):
             raise ValueError("action_joint_indices must not overlap gripper_indices")
 
         _ensure_indices_valid(self.real_dim, self.gripper_idx, "gripper_idx")
-        _ensure_indices_valid(self.real_dim, self.action_joint_idx, "action_joint_idx")
+        _ensure_indices_valid(self.real_dim, self.joint_idx, "joint_idx")
 
     def _pad_to_model_dim(self, x: torch.Tensor) -> torch.Tensor:
         if x.size(-1) == self.dim_action:
@@ -297,13 +296,13 @@ class ChunkDeltaJointActionSpace(BaseActionSpace):
     def encode_targets(self, action: torch.Tensor, proprio: torch.Tensor) -> torch.Tensor:
         delta = self._pad_to_model_dim(action).clone()
         reference = self._state_reference(proprio).unsqueeze(1)
-        delta[..., self.action_joint_idx] = delta[..., self.action_joint_idx] - reference
+        delta[..., self.joint_idx] = delta[..., self.joint_idx] - reference
         return delta
 
     def decode_actions(self, action: torch.Tensor, proprio: torch.Tensor) -> torch.Tensor:
         absolute = self._pad_to_model_dim(action).clone()
         reference = self._state_reference(proprio).unsqueeze(1)
-        absolute[..., self.action_joint_idx] = absolute[..., self.action_joint_idx] + reference
+        absolute[..., self.joint_idx] = absolute[..., self.joint_idx] + reference
         return absolute
 
     def re_reference_leftover(
@@ -315,9 +314,7 @@ class ChunkDeltaJointActionSpace(BaseActionSpace):
         adjusted = leftover.clone()
         old_reference = self._state_reference(old_proprio).unsqueeze(1)
         new_reference = self._state_reference(new_proprio).unsqueeze(1)
-        adjusted[..., self.action_joint_idx] = (
-            adjusted[..., self.action_joint_idx] + old_reference - new_reference
-        )
+        adjusted[..., self.joint_idx] = adjusted[..., self.joint_idx] + old_reference - new_reference
         return adjusted
 
     def compute_loss(self, pred: torch.Tensor, target: torch.Tensor) -> dict[str, torch.Tensor]:
@@ -326,14 +323,11 @@ class ChunkDeltaJointActionSpace(BaseActionSpace):
         assert pred.shape == target.shape
         _, _, action_dim = pred.shape
         _ensure_indices_valid(action_dim, self.gripper_idx, "gripper_idx")
-        _ensure_indices_valid(action_dim, self.action_joint_idx, "action_joint_idx")
+        _ensure_indices_valid(action_dim, self.joint_idx, "action_joint_idx")
 
         g_losses = [self.bce(pred[:, :, gi], target[:, :, gi]) for gi in self.gripper_idx]
-        gripper_loss = torch.stack(g_losses).mean() * self.GRIPPER_SCALE
-        joints_loss = (
-            self.mse(pred[:, :, self.action_joint_idx], target[:, :, self.action_joint_idx])
-            * self.JOINTS_SCALE
-        )
+        gripper_loss = torch.stack(g_losses).mean()
+        joints_loss = self.mse(pred[:, :, self.joint_idx], target[:, :, self.joint_idx]) * self.JOINTS_SCALE
 
         return {
             "joints_delta_loss": joints_loss,
@@ -350,7 +344,7 @@ class ChunkDeltaJointActionSpace(BaseActionSpace):
     def postprocess(self, action: torch.Tensor) -> torch.Tensor:
         action = self._pad_to_model_dim(action)
         if action.size(-1) > max(self.gripper_idx):
-            action[..., self.gripper_idx] = torch.sigmoid(action[..., self.gripper_idx])
+            action[..., self.gripper_idx] = action[..., self.gripper_idx].clamp_(0.0, 1.0)
         return self._trim_to_real_dim(action)
 
 

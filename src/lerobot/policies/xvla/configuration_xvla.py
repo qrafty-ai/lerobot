@@ -143,6 +143,8 @@ class XVLAConfig(PreTrainedConfig):
                 raise ValueError("`gripper_indices` must not contain duplicates.")
             if any(idx < 0 for idx in self.gripper_indices):
                 raise ValueError("`gripper_indices` must contain only non-negative indices.")
+        if self.action_mode == "chunk_delta_joint" and self.gripper_indices is None:
+            raise ValueError("`chunk_delta_joint` requires explicit `gripper_indices`.")
         if (self.action_joint_indices is None) != (self.state_joint_indices is None):
             raise ValueError(
                 "`action_joint_indices` and `state_joint_indices` must both be set or both be omitted."
