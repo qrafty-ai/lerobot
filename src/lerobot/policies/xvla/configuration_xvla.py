@@ -172,6 +172,7 @@ class XVLAConfig(PreTrainedConfig):
 
             if "text_config" not in config_dict or config_dict["text_config"] is None:
                 raise ValueError("text_config is required")
+            self.florence_config = config_dict
             self._florence_config_obj = Florence2Config(**config_dict)
         return self._florence_config_obj
 

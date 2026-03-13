@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import json
 from pathlib import Path
 
 import pytest
@@ -112,3 +113,22 @@ def test_from_pretrained_requires_opt_in_for_larger_max_state_dim(tmp_path: Path
 
     with pytest.raises(RuntimeError, match="allow_reinit_action_encoder_for_larger_max_state_dim"):
         XVLAPolicy.from_pretrained(tmp_path, config=runtime_cfg)
+
+
+def test_get_florence_config_persists_hydrated_config_for_save_pretrained(tmp_path: Path, monkeypatch):
+    resolved_florence_config = make_tiny_xvla_config(max_state_dim=20).florence_config
+    cfg = make_tiny_xvla_config(max_state_dim=20)
+    cfg.florence_config = {}
+    cfg.pretrained_path = Path("lerobot/xvla-base")
+
+    monkeypatch.setattr(cfg, "_load_florence_config_from_pretrained", lambda _: resolved_florence_config)
+
+    florence_config = cfg.get_florence_config()
+    assert florence_config.vision_config is not None
+    assert florence_config.text_config is not None
+    assert cfg.florence_config == resolved_florence_config
+
+    cfg.save_pretrained(tmp_path)
+
+    saved_config = json.loads((tmp_path / "config.json").read_text())
+    assert saved_config["florence_config"] == resolved_florence_config
