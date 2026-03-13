@@ -56,8 +56,9 @@ class XVLAModel(nn.Module):
         self.chunk_size: int = config.chunk_size
         self.use_proprio: bool = config.use_proprio
 
-        # Build action space with auto-detection for "auto" mode
-        if config.action_mode.lower() == "auto":
+        action_mode = config.action_mode.lower()
+
+        if action_mode == "auto":
             # Auto-detect real action dim from config.action_feature
             real_dim = (
                 config.action_feature.shape[-1]
@@ -65,12 +66,31 @@ class XVLAModel(nn.Module):
                 else config.max_action_dim
             )
             self.action_space = build_action_space(
-                config.action_mode.lower(),
+                action_mode,
                 real_dim=real_dim,
                 max_dim=config.max_action_dim,
             )
+        elif action_mode == "chunk_delta_joint":
+            real_dim = (
+                config.action_feature.shape[-1]
+                if config.action_feature is not None
+                else config.max_action_dim
+            )
+            self.action_space = build_action_space(
+                action_mode,
+                real_dim=real_dim,
+                max_dim=max(config.max_action_dim, real_dim),
+                gripper_indices=config.gripper_indices,
+                action_joint_indices=config.action_joint_indices,
+                state_joint_indices=config.state_joint_indices,
+            )
+        elif action_mode in {"ee6d", "joint", "agibot_ee6d"}:
+            self.action_space = build_action_space(
+                action_mode,
+                gripper_indices=config.gripper_indices,
+            )
         else:
-            self.action_space = build_action_space(config.action_mode.lower())
+            self.action_space = build_action_space(action_mode)
 
         self.dim_action = self.action_space.dim_action
         self.dim_proprio = proprio_dim
@@ -209,6 +229,7 @@ class XVLAModel(nn.Module):
         action = action.to(dtype=target_dtype)
 
         enc = self.forward_vlm(input_ids, image_input, image_mask)
+        action_target = self.action_space.encode_targets(action, proprio)
 
         batch_size = input_ids.shape[0]
         t = (
@@ -216,7 +237,9 @@ class XVLAModel(nn.Module):
             + torch.arange(batch_size, device=input_ids.device, dtype=target_dtype) / batch_size
         ) % (1 - 1e-5)
 
-        action_noisy = torch.randn_like(action) * t.view(-1, 1, 1) + action * (1 - t).view(-1, 1, 1)
+        action_noisy = torch.randn_like(action_target) * t.view(-1, 1, 1) + action_target * (1 - t).view(
+            -1, 1, 1
+        )
         proprio_m, action_noisy_m = self.action_space.preprocess(proprio, action_noisy)
 
         pred_action = self.transformer(
@@ -226,7 +249,7 @@ class XVLAModel(nn.Module):
             proprio=proprio_m,
             **enc,
         )
-        return self.action_space.compute_loss(pred_action, action)
+        return self.action_space.compute_loss(pred_action, action_target)
 
     @torch.no_grad()
     def generate_actions(
@@ -264,6 +287,7 @@ class XVLAModel(nn.Module):
                 t=t,
                 **enc,
             )
+        action = self.action_space.decode_actions(action, proprio)
         return self.action_space.postprocess(action)
 
 
