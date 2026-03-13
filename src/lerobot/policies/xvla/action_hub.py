@@ -233,6 +233,7 @@ class JointActionSpace(BaseActionSpace):
 
 @register_action("chunk_delta_joint")
 class ChunkDeltaJointActionSpace(BaseActionSpace):
+    GRIPPER_SCALE = 0.1
     JOINTS_SCALE = 1.0
 
     def __init__(
@@ -326,7 +327,7 @@ class ChunkDeltaJointActionSpace(BaseActionSpace):
         _ensure_indices_valid(action_dim, self.action_joint_idx, "action_joint_idx")
 
         g_losses = [self.bce(pred[:, :, gi], target[:, :, gi]) for gi in self.gripper_idx]
-        gripper_loss = torch.stack(g_losses).mean()
+        gripper_loss = torch.stack(g_losses).mean() * self.GRIPPER_SCALE
         joints_loss = self.mse(pred[:, :, self.action_joint_idx], target[:, :, self.action_joint_idx]) * self.JOINTS_SCALE
 
         return {
