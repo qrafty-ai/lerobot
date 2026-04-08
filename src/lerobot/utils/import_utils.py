@@ -16,6 +16,7 @@
 import importlib
 import importlib.metadata
 import logging
+from importlib.util import find_spec
 from typing import Any
 
 from draccus.choice_types import ChoiceRegistry
@@ -37,7 +38,7 @@ def is_package_available(
         import_name = pkg_name
 
     # Check if the module spec exists using the import name
-    package_exists = importlib.util.find_spec(import_name) is not None
+    package_exists = find_spec(import_name) is not None
     package_version = "N/A"
     if package_exists:
         try:
@@ -165,7 +166,17 @@ def register_third_party_plugins() -> None:
             failed.append(module_name)
 
     for dist in importlib.metadata.distributions():
-        dist_name = dist.metadata.get("Name")
+        try:
+            metadata = getattr(dist, "metadata", None)
+        except Exception:
+            logging.debug("Skipping distribution with unreadable metadata: %s", dist, exc_info=True)
+            continue
+
+        if metadata is None or not hasattr(metadata, "get"):
+            logging.debug("Skipping distribution with missing metadata: %s", dist)
+            continue
+
+        dist_name = metadata.get("Name")
         if not dist_name:
             continue
         if dist_name.startswith(prefixes):
