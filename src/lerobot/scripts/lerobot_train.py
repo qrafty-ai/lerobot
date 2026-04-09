@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import dataclasses
+import inspect
 import logging
 import time
 from contextlib import nullcontext
@@ -56,6 +57,112 @@ from lerobot.utils.utils import (
 )
 
 
+_HUMAN_DEMO_WEIGHTING_FALLBACK_WARNED_POLICIES: set[type[PreTrainedPolicy]] = set()
+
+
+def get_human_demo_batch_weights(
+    batch: dict[str, Any],
+    key: str,
+    scale: float,
+    batch_size: int,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    if key not in batch:
+        raise ValueError(f"Configured human_demo_key '{key}' is missing from the batch.")
+
+    raw_values = batch[key]
+    try:
+        values = torch.as_tensor(raw_values, device=device)
+    except (TypeError, ValueError, RuntimeError) as exc:
+        raise ValueError(
+            f"Batch field '{key}' is not usable for human-demo weighting. Expected a boolean or numeric "
+            "per-sample field."
+        ) from exc
+
+    if values.ndim == 0:
+        raise ValueError(
+            f"Batch field '{key}' is not usable for human-demo weighting. Expected one value per sample, "
+            f"got scalar shape {tuple(values.shape)}."
+        )
+
+    if values.shape[0] != batch_size:
+        raise ValueError(
+            f"Batch field '{key}' has incompatible batch dimension {values.shape[0]}; expected {batch_size}."
+        )
+
+    original_shape = tuple(values.shape)
+    if values.ndim > 1:
+        values = values.reshape(batch_size, -1)
+        if values.shape[1] != 1:
+            raise ValueError(
+                f"Batch field '{key}' is not usable for human-demo weighting. Expected one value per sample, "
+                f"got shape {original_shape}."
+            )
+        values = values[:, 0]
+
+    if values.dtype == torch.bool:
+        is_human_demo = values
+    elif values.is_floating_point() or values.dtype in {
+        torch.uint8,
+        torch.int8,
+        torch.int16,
+        torch.int32,
+        torch.int64,
+    }:
+        is_human_demo = values > 0
+    else:
+        raise ValueError(
+            f"Batch field '{key}' is not usable for human-demo weighting. Expected a boolean or numeric "
+            f"per-sample field, got dtype {values.dtype}."
+        )
+
+    base_weights = torch.where(
+        is_human_demo,
+        torch.full((batch_size,), scale, device=device, dtype=dtype),
+        torch.ones(batch_size, device=device, dtype=dtype),
+    )
+    return base_weights * (batch_size / base_weights.sum())
+
+
+def compute_weighted_loss(per_sample_loss: torch.Tensor, batch_weights: torch.Tensor) -> torch.Tensor:
+    if per_sample_loss.ndim == 0:
+        raise ValueError("Expected per-sample loss with a batch dimension, got a scalar.")
+
+    batch_size = per_sample_loss.shape[0]
+    if batch_weights.shape != (batch_size,):
+        raise ValueError(f"Batch weights must have shape ({batch_size},), got {tuple(batch_weights.shape)}.")
+
+    losses = per_sample_loss.reshape(batch_size, -1)
+    if losses.shape[1] != 1:
+        raise ValueError(
+            "Expected per-sample loss to provide exactly one scalar loss per sample for weighting, "
+            f"got shape {tuple(per_sample_loss.shape)}."
+        )
+
+    return (losses[:, 0] * batch_weights).sum() / batch_weights.sum()
+
+
+def policy_forward_supports_reduction_arg(policy: PreTrainedPolicy) -> bool:
+    parameters = inspect.signature(policy.forward).parameters.values()
+    return any(parameter.name == "reduction" for parameter in parameters) or any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters
+    )
+
+
+def log_human_demo_weighting_fallback(policy: PreTrainedPolicy) -> None:
+    policy_type = type(policy)
+    if policy_type in _HUMAN_DEMO_WEIGHTING_FALLBACK_WARNED_POLICIES:
+        return
+
+    logging.warning(
+        "Policy %s.forward does not accept reduction='none'; falling back to unweighted loss and "
+        "skipping human-demo weighting for this run.",
+        policy_type.__name__,
+    )
+    _HUMAN_DEMO_WEIGHTING_FALLBACK_WARNED_POLICIES.add(policy_type)
+
+
 def update_policy(
     train_metrics: MetricsTracker,
     policy: PreTrainedPolicy,
@@ -66,6 +173,8 @@ def update_policy(
     lr_scheduler=None,
     lock=None,
     rabc_weights_provider=None,
+    human_demo_key: str | None = None,
+    human_demo_scale: float = 1.0,
 ) -> tuple[MetricsTracker, dict]:
     """
     Performs a single training step to update the policy's weights.
@@ -83,6 +192,8 @@ def update_policy(
         lr_scheduler: An optional learning rate scheduler.
         lock: An optional lock for thread-safe optimizer updates.
         rabc_weights_provider: Optional RABCWeights instance for sample weighting.
+        human_demo_key: Optional batch key used for direct human-demo sample weighting.
+        human_demo_scale: Multiplicative weight for samples whose human-demo indicator is truthy.
 
     Returns:
         A tuple containing:
@@ -113,6 +224,21 @@ def update_policy(
             output_dict["rabc_mean_weight"] = rabc_batch_stats["raw_mean_weight"]
             output_dict["rabc_num_zero_weight"] = rabc_batch_stats["num_zero_weight"]
             output_dict["rabc_num_full_weight"] = rabc_batch_stats["num_full_weight"]
+        elif human_demo_key is not None:
+            if policy_forward_supports_reduction_arg(policy):
+                per_sample_loss, output_dict = policy.forward(batch, reduction="none")
+                human_demo_batch_weights = get_human_demo_batch_weights(
+                    batch=batch,
+                    key=human_demo_key,
+                    scale=human_demo_scale,
+                    batch_size=per_sample_loss.shape[0],
+                    device=per_sample_loss.device,
+                    dtype=per_sample_loss.dtype,
+                )
+                loss = compute_weighted_loss(per_sample_loss, human_demo_batch_weights)
+            else:
+                log_human_demo_weighting_fallback(policy)
+                loss, output_dict = policy.forward(batch)
         else:
             loss, output_dict = policy.forward(batch)
 
@@ -423,6 +549,8 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
             accelerator=accelerator,
             lr_scheduler=lr_scheduler,
             rabc_weights_provider=rabc_weights,
+            human_demo_key=cfg.human_demo_key,
+            human_demo_scale=cfg.human_demo_scale,
         )
 
         # Note: eval and checkpoint happens *after* the `step`th training update has completed, so we

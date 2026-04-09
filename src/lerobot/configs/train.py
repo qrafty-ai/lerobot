@@ -77,6 +77,9 @@ class TrainPipelineConfig(HubMixin):
     rabc_epsilon: float = 1e-6  # Small constant for numerical stability
     rabc_head_mode: str | None = "sparse"  # For dual-head models: "sparse" or "dense"
 
+    human_demo_key: str | None = None
+    human_demo_scale: float = 1.0
+
     # Rename map for the observation to override the image and state keys
     rename_map: dict[str, str] = field(default_factory=dict)
     checkpoint_path: Path | None = field(init=False, default=None)
@@ -142,6 +145,17 @@ class TrainPipelineConfig(HubMixin):
             raise ValueError(
                 "'policy.repo_id' argument missing. Please specify it to push the model to the hub."
             )
+
+        if self.human_demo_key is None:
+            if self.human_demo_scale != 1.0:
+                raise ValueError("human_demo_scale requires human_demo_key to be set.")
+        else:
+            if not self.human_demo_key.strip():
+                raise ValueError("human_demo_key must be a non-empty string.")
+            if self.human_demo_scale <= 0:
+                raise ValueError("human_demo_scale must be strictly positive.")
+            if self.use_rabc:
+                raise ValueError("use_rabc and human_demo_key cannot be enabled at the same time.")
 
         if self.use_rabc and not self.rabc_progress_path:
             # Auto-detect from dataset path
